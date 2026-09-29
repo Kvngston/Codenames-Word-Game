@@ -1,0 +1,26 @@
+1. Teams and board
+   There are two teams: red and blue. Each has one spymaster, who knows the cards’ secret colours, and operatives, who guess.
+   The board contains 25 words in a 5×5 grid: 9 belong to the starting team, 8 to the other team, 7 are neutral, and 1 is the assassin. Only spymasters can see the secret map. [Setup rules](https://www.asmodee.co.uk/blogs/news/codenames-rules)
+2. Giving a clue
+   On your team’s turn, the spymaster gives one word and one number. The word connects the intended cards; the number says how many cards it connects.
+   For example, “Ocean, 2” could point to WHALE and SHIP. Operatives discuss the possibilities, then select cards one at a time. The spymaster cannot add explanations, gestures, or facial hints. [How turns work](https://www.asmodee.co.uk/blogs/news/codenames-rules)
+3. What happens when you guess
+   The first team whose cards are all revealed wins. [Official gameplay overview](https://www.czechgames.com/games/codenames)
+4. How many guesses you get
+   Normally, you may make the clue’s number plus one guesses, provided you keep getting your own cards. With “Ocean, 2”, you can make up to 3 guesses. You can stop early instead of risking another card. [Guessing rules](https://www.asmodee.co.uk/blogs/news/codenames-rules)
+   You must guess at least once. Guesses can revisit previous clues. Revealing the opponent’s final card gives them the win.
+5. Clue restrictions and exceptions
+   - Clues concern meaning, not spelling, letters, or board position.
+   - Don’t use an unrevealed word, its forms, or a component of an unrevealed compound word.
+   - The number cannot carry an extra hint.
+   - Foreign words must be ordinary usage in the language being played.
+   - Different meanings of identically spelled words are allowed; purely sound-based connections normally aren’t.
+   - You may spell the clue and should do so if asked.
+   - Agree beforehand on allowing multiword names, compounds, abbreviations, rhymes, or soundalikes. Invented names and compounds aren’t allowed.
+   - Ask the opposing spymaster privately about doubtful clues.
+6. Special clues and penalties
+   - Zero: none of your words match the clue; guessing has no numerical limit.
+   - Unlimited: removes the guessing limit without specifying how many words match.
+   - Both still require a guess; wrong guesses still end your turn.
+   - Invalid clue: turn ends; the opposing spymaster may reveal one additional friendly card. Unnoticed violations count as valid.
+   - Timers are optional.

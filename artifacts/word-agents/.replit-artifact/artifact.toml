@@ -1,0 +1,28 @@
+kind = "web"
+previewPath = "/"
+title = "Word Agents"
+description = "A polished pass-and-play word-clue game for two teams. Players take turns giving clues and guessing on a 5×5 board, with a private spymaster key, special clues, and complete win and penalty handling."
+version = "1.0.0"
+id = "artifacts/word-agents"
+router = "path"
+
+[[services]]
+name = "web"
+paths = [ "/" ]
+localPort = 22021
+
+[services.development]
+run = "pnpm --filter @workspace/word-agents run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/word-agents", "run", "build" ]
+serve = "static"
+publicDir = "artifacts/word-agents/dist/public"
+
+[[services.production.rewrites]]
+from = "/*"
+to = "/index.html"
+
+[services.env]
+PORT = "22021"
+BASE_PATH = "/"
