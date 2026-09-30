@@ -27,7 +27,9 @@ services:
   app:
     build: ..
     restart: unless-stopped
-    mem_limit: 1g
+    # Each connected player holds ~0.5 MB (WebSocket + relay buffers). 1g was
+    # OOM-killed at ~800 players under load; 3g held 4,000 in a load test.
+    mem_limit: 3g
     # Written by ci-deploy.sh: the release tag this container was built from.
     env_file:
       - path: release.env

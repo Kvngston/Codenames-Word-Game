@@ -13,4 +13,6 @@ RUN useradd --system --uid 10001 app
 COPY --from=build /app/build/libs/*.jar app.jar
 USER app
 EXPOSE 8080
-ENTRYPOINT ["java", "-XX:MaxRAMPercentage=75", "-jar", "/app/app.jar"]
+# G1 explicitly: with 2 CPUs and a small memory limit the JVM falls back to
+# single-threaded Serial GC, which paused for seconds at a time under load.
+ENTRYPOINT ["java", "-XX:+UseG1GC", "-XX:MaxRAMPercentage=75", "-jar", "/app/app.jar"]
