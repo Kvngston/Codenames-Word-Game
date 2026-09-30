@@ -375,7 +375,7 @@ export function PacksDialog({ initialCode, onClose, onToast }: { initialCode: st
       <section className="dialog" role="dialog" aria-modal="true" aria-labelledby="packs-title">
         <div className="dialog-head">
           <div>
-            <div className="eyebrow">Your library</div>
+            <div className="eyebrow">Archive</div>
             <h2 id="packs-title">{mode.kind === 'edit' ? (mode.pack ? 'Edit pack' : 'New pack') : mode.kind === 'preview' ? 'Shared pack' : 'Word packs'}</h2>
           </div>
           <button type="button" className="icon-button" aria-label="Close dialog" onClick={onClose} data-testid="button-close-packs"><X size={17} /></button>
