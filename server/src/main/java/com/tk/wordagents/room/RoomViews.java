@@ -20,7 +20,8 @@ public final class RoomViews {
 
     public record TeamPair<T>(T red, T blue) {}
 
-    public record CardView(String id, String word, boolean revealed, CardRole role) {}
+    /** {@code highlightedBy} lists the players who highlighted this card, in join order. Everyone sees it. */
+    public record CardView(String id, String word, boolean revealed, CardRole role, List<String> highlightedBy) {}
 
     public record PlayerView(String id, String name, Team team, Seat seat, boolean connected, @JsonProperty("isHost") boolean isHost) {}
 
@@ -77,7 +78,8 @@ public final class RoomViews {
             room.getActiveTeam(),
             room.getCards().stream()
                 .map(card -> new CardView(card.getCardId(), card.getWord(), card.isRevealed(),
-                    card.isRevealed() || seesMap || gameOver ? card.getRole() : null))
+                    card.isRevealed() || seesMap || gameOver ? card.getRole() : null,
+                    room.getPlayers().stream().filter(player -> player.getHighlights().contains(card.getCardId())).map(Player::getId).toList()))
                 .toList(),
             new TeamPair<>(GameRules.remaining(room, Team.RED), GameRules.remaining(room, Team.BLUE)),
             new TeamPair<>(GameRules.total(room, Team.RED), GameRules.total(room, Team.BLUE)),

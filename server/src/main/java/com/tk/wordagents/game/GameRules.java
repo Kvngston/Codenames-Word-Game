@@ -59,6 +59,11 @@ public final class GameRules {
         room.setResultMessage("");
         room.setPenaltyRevealPending(false);
         room.setLastEvent("");
+        clearHighlights(room);
+    }
+
+    private static void clearHighlights(Room room) {
+        room.getPlayers().forEach(player -> player.setHighlights(List.of()));
     }
 
     /**
@@ -115,13 +120,43 @@ public final class GameRules {
     }
 
     /** A clue that equals an unrevealed word, or a part of one, needs the opposing spymaster's ruling. */
+    /**
+     * Why a clue can't be given at all: it is an unrevealed word on the board, a
+     * part of one (SCUBA for SCUBA DIVER), or one written without its spaces.
+     */
+    static Optional<String> boardConflict(Room room, String clue) {
+        List<String> parts = parts(clue);
+        String joined = String.join("", parts);
+        for (Card card : unrevealed(room)) {
+            List<String> wordParts = parts(card.getWord());
+            if (joined.equals(String.join("", wordParts))) return Optional.of("“" + card.getWord() + "” is on the board. Pick a clue that isn’t one of the words.");
+            for (String part : parts) {
+                if (wordParts.contains(part)) return Optional.of("“" + part.toUpperCase(Locale.ROOT) + "” is part of “" + card.getWord() + "” on the board. Pick a different clue.");
+            }
+        }
+        return Optional.empty();
+    }
+
+    /**
+     * A clue that contains a board word, or sits inside one (SHARKS, FIREMAN),
+     * needs the opposing spymaster's ruling. Exact matches never get this far.
+     */
     static boolean isQuestionableClue(Room room, String clue) {
-        List<String> parts = Arrays.stream(clue.trim().toLowerCase(Locale.ROOT).split("[\\s-]+")).filter(s -> !s.isEmpty()).toList();
-        return room.getCards().stream().filter(card -> !card.isRevealed()).anyMatch(card -> {
-            String word = card.getWord().toLowerCase(Locale.ROOT);
-            List<String> wordParts = Arrays.asList(word.split("[\\s-]+"));
-            return parts.stream().anyMatch(part -> part.equals(word) || wordParts.contains(part));
+        String joined = String.join("", parts(clue));
+        return unrevealed(room).stream().map(card -> String.join("", parts(card.getWord()))).anyMatch(word -> {
+            boolean wordIsShorter = word.length() <= joined.length();
+            String shorter = wordIsShorter ? word : joined;
+            String longer = wordIsShorter ? joined : word;
+            return shorter.length() >= 3 && longer.contains(shorter);
         });
+    }
+
+    private static List<String> parts(String text) {
+        return Arrays.stream(text.trim().toLowerCase(Locale.ROOT).split("[\\s-]+")).filter(part -> !part.isEmpty()).toList();
+    }
+
+    private static List<Card> unrevealed(Room room) {
+        return room.getCards().stream().filter(card -> !card.isRevealed()).toList();
     }
 
     /** Why the table can't start yet, or empty when it's ready. */
@@ -216,6 +251,7 @@ public final class GameRules {
                 ensure(!word.matches(".*\\s.*"), "Keep it to one word. A hyphenated word is okay.");
                 ensure(word.length() <= 32, "That clue is too long.");
                 ensure(number != null && (number.unlimited() || (number.value() >= 0 && number.value() <= 9)), "Pick a number from 0 to 9, or unlimited.");
+                boardConflict(room, word).ifPresent(problem -> { throw new GameException(problem); });
                 ActiveClue clue = new ActiveClue(active, word, number);
                 if (isQuestionableClue(room, word)) {
                     room.setPendingReview(clue);
@@ -259,33 +295,17 @@ public final class GameRules {
                 room.setPenaltyRevealPending(false);
             }
 
-            case GameAction.Guess(String cardId) -> {
-                ensure(room.getPhase() == Phase.GUESSING, "Wait for your spymaster’s clue.");
-                ensure(isActiveOperative, "Only " + room.teamName(active) + " operatives can guess right now.");
-                Card card = findCard(room, cardId);
-                Team rival = active.other();
-                card.reveal();
-                room.setLastEvent(player.getName() + " picked " + card.getWord() + ": " + roleLabel(card.getRole(), room) + ".");
+            case GameAction.Guess(String cardId) -> guess(room, player, List.of(cardId));
 
-                if (card.getRole() == CardRole.ASSASSIN) {
-                    finish(room, rival, room.teamName(active) + " uncovered the assassin.");
-                } else if (card.getRole() == active.cardRole()) {
-                    if (remaining(room, active) == 0) {
-                        finish(room, active, room.teamName(active) + " found every one of its agents.");
-                        return;
-                    }
-                    room.setTurnGuesses(room.getTurnGuesses() + 1);
-                    Count budget = room.getGuessesRemaining();
-                    if (!budget.unlimited()) {
-                        Count next = Count.of(Math.max(0, budget.value() - 1));
-                        room.setGuessesRemaining(next);
-                        if (next.value() == 0) endTurn(room, false);
-                    }
-                } else if (card.getRole() == rival.cardRole() && remaining(room, rival) == 0) {
-                    finish(room, rival, room.teamName(rival) + " revealed its final agent.");
-                } else {
-                    endTurn(room, false);
-                }
+            case GameAction.Guesses(List<String> cardIds) -> guess(room, player, cardIds == null ? List.of() : cardIds);
+
+            case GameAction.SetHighlights(List<String> rawIds) -> {
+                ensure(room.getPhase() == Phase.GUESSING, "Highlights are for the guessing turn.");
+                // Spymasters never highlight: it would give the map away.
+                ensure(isActiveOperative, "Only " + room.teamName(active) + " operatives can highlight words right now.");
+                List<String> ids = rawIds == null ? List.of() : rawIds.stream().distinct().toList();
+                ids.forEach(id -> findCard(room, id));
+                player.setHighlights(ids);
             }
 
             case GameAction.EndTurn() -> {
@@ -301,6 +321,58 @@ public final class GameRules {
                 deal(room, library);
                 room.setLastEvent("A fresh word map is on the table. Check your seats, then deal.");
             }
+        }
+    }
+
+    /**
+     * Reveals the operative's picks in the order they were chosen, stopping as
+     * soon as one ends the turn or the game. Later picks are left unrevealed.
+     */
+    private static void guess(Room room, Player player, List<String> cardIds) {
+        Team active = room.getActiveTeam();
+        ensure(room.getPhase() == Phase.GUESSING, "Wait for your spymaster’s clue.");
+        ensure(player.getSeat() == Seat.OPERATIVE && player.getTeam() == active, "Only " + room.teamName(active) + " operatives can guess right now.");
+        ensure(!cardIds.isEmpty(), "Pick at least one word.");
+        ensure(cardIds.stream().distinct().count() == cardIds.size(), "Each word can only be picked once.");
+        List<Card> cards = cardIds.stream().map(id -> findCard(room, id)).toList();
+        Count budget = room.getGuessesRemaining();
+        if (!budget.unlimited() && cards.size() > budget.value()) {
+            throw new GameException("This clue has " + budget.value() + (budget.value() == 1 ? " guess" : " guesses") + " left. Pick fewer words.");
+        }
+
+        List<String> picks = new ArrayList<>();
+        for (Card card : cards) {
+            reveal(room, card, active);
+            picks.add(card.getWord() + ": " + roleLabel(card.getRole(), room));
+            if (room.getPhase() != Phase.GUESSING || room.getActiveTeam() != active) break;
+        }
+        int dropped = cards.size() - picks.size();
+        room.setLastEvent(player.getName() + " picked " + String.join(", ", picks) + "."
+            + (dropped == 0 ? "" : " The turn ended before the other " + (dropped == 1 ? "pick" : dropped + " picks") + "."));
+    }
+
+    private static void reveal(Room room, Card card, Team active) {
+        Team rival = active.other();
+        card.reveal();
+        room.getPlayers().forEach(player -> player.setHighlights(player.getHighlights().stream().filter(id -> !id.equals(card.getCardId())).toList()));
+        if (card.getRole() == CardRole.ASSASSIN) {
+            finish(room, rival, room.teamName(active) + " uncovered the assassin.");
+        } else if (card.getRole() == active.cardRole()) {
+            if (remaining(room, active) == 0) {
+                finish(room, active, room.teamName(active) + " found every one of its agents.");
+                return;
+            }
+            room.setTurnGuesses(room.getTurnGuesses() + 1);
+            Count budget = room.getGuessesRemaining();
+            if (!budget.unlimited()) {
+                Count next = Count.of(Math.max(0, budget.value() - 1));
+                room.setGuessesRemaining(next);
+                if (next.value() == 0) endTurn(room, false);
+            }
+        } else if (card.getRole() == rival.cardRole() && remaining(room, rival) == 0) {
+            finish(room, rival, room.teamName(rival) + " revealed its final agent.");
+        } else {
+            endTurn(room, false);
         }
     }
 
@@ -321,6 +393,7 @@ public final class GameRules {
         room.setTurnGuesses(0);
         room.setPendingReview(null);
         room.setPenaltyRevealPending(penaltyRevealPending);
+        clearHighlights(room);
     }
 
     private static void finish(Room room, Team winner, String message) {
@@ -330,6 +403,7 @@ public final class GameRules {
         room.setPenaltyRevealPending(false);
         room.setPendingReview(null);
         room.setGuessesRemaining(Count.of(0));
+        clearHighlights(room);
     }
 
     private static Card findCard(Room room, String cardId) {

@@ -40,6 +40,8 @@ export interface CardView {
   revealed: boolean;
   /** null means the viewer is not allowed to know this card's role. */
   role: CardRole | null;
+  /** Ids of the players who highlighted this card this turn. Everyone sees them. */
+  highlightedBy: string[];
 }
 
 export interface PlayerView {
@@ -89,6 +91,8 @@ export type Action =
   | { type: 'penalty-reveal'; cardId: string }
   | { type: 'skip-penalty' }
   | { type: 'guess'; cardId: string }
+  | { type: 'guesses'; cardIds: string[] }
+  | { type: 'set-highlights'; cardIds: string[] }
   | { type: 'end-turn' }
   | { type: 'new-game' };
 

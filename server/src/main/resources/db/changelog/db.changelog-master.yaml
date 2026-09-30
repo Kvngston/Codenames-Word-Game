@@ -5,3 +5,6 @@ databaseChangeLog:
   - include:
       file: changes/002-word-packs.yaml
       relativeToChangelogFile: true
+  - include:
+      file: changes/003-highlights.yaml
+      relativeToChangelogFile: true

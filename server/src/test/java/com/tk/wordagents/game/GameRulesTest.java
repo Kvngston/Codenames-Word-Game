@@ -137,11 +137,44 @@ class GameRulesTest {
         assertThat(room.getWinner()).isEqualTo(second);
     }
 
+    /** Re-deals with these words guaranteed on the board. The deal picks a new starting team. */
+    private void dealWith(String... words) {
+        apply(room, "red-spy", new GameAction.SetWords(List.of("classic"), List.of(words)));
+        first = room.getStartingTeam();
+        second = first.other();
+    }
+
+    private Card card(String word) {
+        return room.getCards().stream().filter(card -> card.getWord().equals(word)).findFirst().orElseThrow();
+    }
+
     @Test
-    void questionableClueGoesToTheOpposingSpymaster() {
+    void cluesThatAreOnTheBoardAreRejected() {
+        dealWith("SCUBA DIVER", "BONFIRE");
         start();
-        String boardWord = room.getCards().getFirst().getWord().split(" ")[0];
-        apply(room, spy(first), new GameAction.GiveClue(boardWord, Count.of(1)));
+        assertThatThrownBy(() -> apply(room, spy(first), new GameAction.GiveClue("bonfire", Count.of(1)))).hasMessageContaining("“BONFIRE” is on the board");
+        assertThatThrownBy(() -> apply(room, spy(first), new GameAction.GiveClue("SCUBA", Count.of(1)))).hasMessageContaining("part of “SCUBA DIVER”");
+        assertThatThrownBy(() -> apply(room, spy(first), new GameAction.GiveClue("scuba-diver", Count.of(1)))).hasMessageContaining("is on the board");
+        assertThatThrownBy(() -> apply(room, spy(first), new GameAction.GiveClue("SCUBADIVER", Count.of(1)))).hasMessageContaining("is on the board");
+        assertThat(room.pendingReview()).isEmpty();
+        assertThat(room.getPhase()).isEqualTo(Phase.CLUE);
+        assertThat(room.getActiveTeam()).as("a rejected clue costs nothing").isEqualTo(first);
+    }
+
+    @Test
+    void revealedWordsCanBeUsedAsClues() {
+        dealWith("BONFIRE");
+        start();
+        card("BONFIRE").reveal();
+        apply(room, spy(first), new GameAction.GiveClue("BONFIRE", Count.of(1)));
+        assertThat(room.clue()).map(ActiveClue::word).contains("BONFIRE");
+    }
+
+    @Test
+    void nearMatchesGoToTheOpposingSpymaster() {
+        dealWith("BONFIRE");
+        start();
+        apply(room, spy(first), new GameAction.GiveClue("BONFIRES", Count.of(1)));
         assertThat(room.pendingReview()).isPresent();
         assertThat(room.getPhase()).isEqualTo(Phase.CLUE);
         assertThatThrownBy(() -> apply(room, spy(first), new GameAction.ReviewClue(false))).hasMessageContaining("Only the");
@@ -155,6 +188,64 @@ class GameRulesTest {
         apply(room, spy(second), new GameAction.PenaltyReveal(bonus.getCardId()));
         assertThat(bonus.isRevealed()).isTrue();
         assertThat(room.isPenaltyRevealPending()).isFalse();
+    }
+
+    private List<String> ids(Card... cards) {
+        return java.util.Arrays.stream(cards).map(Card::getCardId).toList();
+    }
+
+    private List<Card> all(CardRole role) {
+        return room.getCards().stream().filter(card -> card.getRole() == role && !card.isRevealed()).toList();
+    }
+
+    @Test
+    void operativesCanSubmitSeveralPicksInTheOrderChosen() {
+        start();
+        apply(room, spy(first), new GameAction.GiveClue("ZEBRA", Count.of(2)));
+        Card one = all(first.cardRole()).get(0);
+        Card two = all(first.cardRole()).get(1);
+        Card neutral = unrevealed(CardRole.NEUTRAL);
+        apply(room, op(first), new GameAction.Guesses(ids(one, two, neutral)));
+        assertThat(List.of(one, two, neutral)).allMatch(Card::isRevealed);
+        assertThat(room.getActiveTeam()).isEqualTo(second);
+        assertThat(room.getLastEvent()).startsWith(op(first) + " picked " + one.getWord()).contains(two.getWord(), neutral.getWord());
+    }
+
+    @Test
+    void aWrongPickEndsTheTurnAndLeavesLaterPicksHidden() {
+        start();
+        apply(room, spy(first), new GameAction.GiveClue("ZEBRA", Count.of(2)));
+        Card rival = unrevealed(second.cardRole());
+        Card friendly = unrevealed(first.cardRole());
+        apply(room, op(first), new GameAction.Guesses(ids(rival, friendly)));
+        assertThat(rival.isRevealed()).isTrue();
+        assertThat(friendly.isRevealed()).isFalse();
+        assertThat(room.getActiveTeam()).isEqualTo(second);
+        assertThat(room.getLastEvent()).contains("The turn ended before the other pick.");
+    }
+
+    @Test
+    void theAssassinStopsABatch() {
+        start();
+        apply(room, spy(first), new GameAction.GiveClue("ZEBRA", Count.UNLIMITED));
+        Card friendly = unrevealed(first.cardRole());
+        apply(room, op(first), new GameAction.Guesses(ids(unrevealed(CardRole.ASSASSIN), friendly)));
+        assertThat(room.getPhase()).isEqualTo(Phase.FINISHED);
+        assertThat(room.getWinner()).isEqualTo(second);
+        assertThat(friendly.isRevealed()).isFalse();
+    }
+
+    @Test
+    void picksMustFitTheClueBudgetAndBeDistinct() {
+        start();
+        apply(room, spy(first), new GameAction.GiveClue("ZEBRA", Count.of(1)));
+        List<Card> friendly = all(first.cardRole());
+        assertThatThrownBy(() -> apply(room, op(first), new GameAction.Guesses(ids(friendly.get(0), friendly.get(1), friendly.get(2)))))
+            .hasMessageContaining("2 guesses left");
+        assertThatThrownBy(() -> apply(room, op(first), new GameAction.Guesses(ids(friendly.get(0), friendly.get(0))))).hasMessageContaining("only be picked once");
+        assertThatThrownBy(() -> apply(room, op(first), new GameAction.Guesses(List.of()))).hasMessageContaining("at least one");
+        assertThatThrownBy(() -> apply(room, op(second), new GameAction.Guesses(ids(friendly.get(0))))).hasMessageContaining("operatives can guess");
+        assertThat(friendly).noneMatch(Card::isRevealed);
     }
 
     @Test
@@ -248,5 +339,44 @@ class GameRulesTest {
         start();
         apply(room, "red-spy", new GameAction.NewGame());
         assertThat(boardWords()).hasSize(25).allMatch(WordPacks.defaultPack().words()::contains);
+    }
+
+    private Player player(String id) {
+        return room.player(id).orElseThrow();
+    }
+
+    @Test
+    void activeOperativesHighlightWordsWithoutGuessing() {
+        start();
+        List<Card> friendly = all(first.cardRole());
+        assertThatThrownBy(() -> apply(room, op(first), new GameAction.SetHighlights(ids(friendly.get(0))))).hasMessageContaining("guessing turn");
+        apply(room, spy(first), new GameAction.GiveClue("ZEBRA", Count.of(2)));
+
+        apply(room, op(first), new GameAction.SetHighlights(ids(friendly.get(1), friendly.get(0), friendly.get(1))));
+        assertThat(player(op(first)).getHighlights()).containsExactly(friendly.get(1).getCardId(), friendly.get(0).getCardId());
+        assertThat(friendly).noneMatch(Card::isRevealed);
+        assertThat(room.getPhase()).isEqualTo(Phase.GUESSING);
+
+        assertThatThrownBy(() -> apply(room, spy(first), new GameAction.SetHighlights(ids(friendly.get(0))))).hasMessageContaining("operatives can highlight");
+        assertThatThrownBy(() -> apply(room, op(second), new GameAction.SetHighlights(ids(friendly.get(0))))).hasMessageContaining("operatives can highlight");
+        assertThatThrownBy(() -> apply(room, op(first), new GameAction.SetHighlights(List.of("nope")))).hasMessageContaining("not on this board");
+
+        apply(room, op(first), new GameAction.SetHighlights(List.of()));
+        assertThat(player(op(first)).getHighlights()).isEmpty();
+    }
+
+    @Test
+    void highlightsDropRevealedCardsAndClearWhenTheTurnEnds() {
+        start();
+        apply(room, spy(first), new GameAction.GiveClue("ZEBRA", Count.of(2)));
+        Card friendly = unrevealed(first.cardRole());
+        Card neutral = unrevealed(CardRole.NEUTRAL);
+        apply(room, op(first), new GameAction.SetHighlights(ids(friendly, neutral)));
+
+        apply(room, op(first), new GameAction.Guess(friendly.getCardId()));
+        assertThat(player(op(first)).getHighlights()).containsExactly(neutral.getCardId());
+
+        apply(room, op(first), new GameAction.EndTurn());
+        assertThat(player(op(first)).getHighlights()).isEmpty();
     }
 }
