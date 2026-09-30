@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Client } from '@stomp/stompjs';
+import { Client, ReconnectionTimeMode } from '@stomp/stompjs';
 import type { Action, RoomView } from '@workspace/game-core';
 
 // The Spring Boot API runs on its own host in production (VITE_API_URL, e.g.
@@ -120,14 +120,24 @@ export function useRoom(seat: Seat | null) {
     setView(null);
     setConnection('connecting');
     let lost = false;
+    let retries = 0;
 
     const client = new Client({
       brokerURL: socketUrl(),
       connectHeaders: { room: seat.code, token: seat.token },
-      reconnectDelay: 2000,
+      // 1 s, 2 s, 4 s … up to 30 s between attempts, plus a random wait below,
+      // so a server restart doesn't bring every phone back in the same second.
+      reconnectDelay: 1000,
+      reconnectTimeMode: ReconnectionTimeMode.EXPONENTIAL,
+      maxReconnectDelay: 30_000,
+      beforeConnect: async () => {
+        if (retries > 0) await new Promise((resolve) => setTimeout(resolve, Math.random() * Math.min(1000 * 2 ** retries, 10_000)));
+        retries += 1;
+      },
       heartbeatIncoming: 10_000,
       heartbeatOutgoing: 10_000,
       onConnect: () => {
+        retries = 0;
         client.subscribe(VIEW_DESTINATION, (message) => accept(JSON.parse(message.body) as RoomView));
         setConnection('live');
         // Catch anything that changed while we were disconnected.
