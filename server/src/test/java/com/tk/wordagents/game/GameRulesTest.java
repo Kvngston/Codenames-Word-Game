@@ -340,4 +340,43 @@ class GameRulesTest {
         apply(room, "red-spy", new GameAction.NewGame());
         assertThat(boardWords()).hasSize(25).allMatch(WordPacks.defaultPack().words()::contains);
     }
+
+    private Player player(String id) {
+        return room.player(id).orElseThrow();
+    }
+
+    @Test
+    void activeOperativesHighlightWordsWithoutGuessing() {
+        start();
+        List<Card> friendly = all(first.cardRole());
+        assertThatThrownBy(() -> apply(room, op(first), new GameAction.SetHighlights(ids(friendly.get(0))))).hasMessageContaining("guessing turn");
+        apply(room, spy(first), new GameAction.GiveClue("ZEBRA", Count.of(2)));
+
+        apply(room, op(first), new GameAction.SetHighlights(ids(friendly.get(1), friendly.get(0), friendly.get(1))));
+        assertThat(player(op(first)).getHighlights()).containsExactly(friendly.get(1).getCardId(), friendly.get(0).getCardId());
+        assertThat(friendly).noneMatch(Card::isRevealed);
+        assertThat(room.getPhase()).isEqualTo(Phase.GUESSING);
+
+        assertThatThrownBy(() -> apply(room, spy(first), new GameAction.SetHighlights(ids(friendly.get(0))))).hasMessageContaining("operatives can highlight");
+        assertThatThrownBy(() -> apply(room, op(second), new GameAction.SetHighlights(ids(friendly.get(0))))).hasMessageContaining("operatives can highlight");
+        assertThatThrownBy(() -> apply(room, op(first), new GameAction.SetHighlights(List.of("nope")))).hasMessageContaining("not on this board");
+
+        apply(room, op(first), new GameAction.SetHighlights(List.of()));
+        assertThat(player(op(first)).getHighlights()).isEmpty();
+    }
+
+    @Test
+    void highlightsDropRevealedCardsAndClearWhenTheTurnEnds() {
+        start();
+        apply(room, spy(first), new GameAction.GiveClue("ZEBRA", Count.of(2)));
+        Card friendly = unrevealed(first.cardRole());
+        Card neutral = unrevealed(CardRole.NEUTRAL);
+        apply(room, op(first), new GameAction.SetHighlights(ids(friendly, neutral)));
+
+        apply(room, op(first), new GameAction.Guess(friendly.getCardId()));
+        assertThat(player(op(first)).getHighlights()).containsExactly(neutral.getCardId());
+
+        apply(room, op(first), new GameAction.EndTurn());
+        assertThat(player(op(first)).getHighlights()).isEmpty();
+    }
 }

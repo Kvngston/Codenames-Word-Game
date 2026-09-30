@@ -13,6 +13,7 @@ import {
   Pencil,
   Radio,
   RotateCcw,
+  Undo2,
   SatelliteDish,
   Shield,
   Skull,
@@ -33,6 +34,7 @@ import {
 } from '@workspace/game-core';
 import { createRoom, forgetSeat, joinRoom, leaveRoom, loadSeat, sendAction, useRoom, type Connection, type Seat } from './room-client';
 import { PacksDialog, WordsPanel } from './word-packs';
+import { GestureTips, HOLD_MS, UNDO_SECONDS, resetGestureTips, useTapOrHold } from './gestures';
 
 type ToastMessage = string | null;
 /** Sends an action; resolves to the updated view, or null if it was rejected. */
@@ -463,11 +465,17 @@ function Table({ view, act, log }: { view: RoomView; act: Act; log: LogEntry[] }
   const [clueDraft, setClueDraft] = useState('');
   // Digits only, 0 to 9 (the server's range). Kept as text so the field can be empty while typing.
   const [numberDraft, setNumberDraft] = useState('');
-  // Tapped cards are only marked, in tap order; nothing is sent until the picks are submitted.
-  const [selectedIds, setSelectedIds] = useState<string[]>([]);
-  // The latest picks, so taps landing before a re-render still build on each other.
-  const picks = useRef<string[]>([]);
-  const [pickHint, setPickHint] = useState<string | null>(null);
+  // The spymaster's penalty reveal: a tapped card is only marked until it's confirmed.
+  const [markedId, setMarkedId] = useState<string | null>(null);
+  // This operative's highlights in tap order. Shown straight away; the server copy catches up.
+  const [myHighlights, setMyHighlights] = useState<string[]>([]);
+  const highlights = useRef<string[]>([]);
+  // Highlight requests still on their way; until they land, local taps win over the server copy.
+  const inflight = useRef(0);
+  // A held guess waits here until the undo window closes.
+  const [pending, setPending] = useState<{ ids: string[]; until: number } | null>(null);
+  const [now, setNow] = useState(() => Date.now());
+  const [hint, setHint] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
   const { you, teamNames, activeTeam, phase } = view;
@@ -481,32 +489,72 @@ function Table({ view, act, log }: { view: RoomView; act: Act; log: LogEntry[] }
   const isGuessing = phase === 'guessing' && isActiveOperative;
 
   const isPenaltyTarget = (card: CardView) => canPenaltyReveal && card.role === activeTeam && !card.revealed;
-  const isSelectable = (card: CardView) => (isGuessing && !card.revealed) || isPenaltyTarget(card);
+  const isGuessable = (card: CardView) => isGuessing && !card.revealed;
   // Derived, so a mark disappears by itself once the card is revealed or the turn moves on.
-  const selected = selectedIds
-    .map((id) => view.cards.find((card) => card.id === id))
-    .filter((card): card is CardView => card !== undefined && isSelectable(card));
-  const hasSelection = selected.length > 0;
-  // A numeric clue caps how many picks can go in at once (the number, plus one).
-  const maxPicks = canPenaltyReveal ? 1 : view.guessesRemaining === 'unlimited' ? Infinity : view.guessesRemaining;
+  const marked = view.cards.find((card) => card.id === markedId && isPenaltyTarget(card)) ?? null;
+  const unrevealedIds = new Set(view.cards.filter((card) => !card.revealed).map((card) => card.id));
+  const mine = isGuessing ? myHighlights.filter((id) => unrevealedIds.has(id)) : [];
+  const mineCards = mine.map((id) => view.cards.find((card) => card.id === id)!);
+  const pendingCards = pending ? pending.ids.map((id) => view.cards.find((card) => card.id === id)).filter((card): card is CardView => Boolean(card && !card.revealed)) : [];
+  const secondsLeft = pending ? Math.max(1, Math.ceil((pending.until - now) / 1000)) : 0;
+  // A numeric clue caps how many words can be guessed at once (the number, plus one).
+  const maxPicks = view.guessesRemaining === 'unlimited' ? Infinity : view.guessesRemaining;
   const clueProblem = clueConflict(clueDraft, view.cards);
+  const playerName = (id: string) => view.players.find((player) => player.id === id)?.name ?? 'Someone';
 
-  function setPicks(ids: string[]) {
-    picks.current = ids;
-    setSelectedIds(ids);
+  /** Who highlighted a card, with this device's own taps shown before the server confirms them. */
+  function highlighters(card: CardView): string[] {
+    const others = card.highlightedBy.filter((id) => id !== you.id);
+    return mine.includes(card.id) ? [...others, you.id] : others;
   }
+  const anyHighlights = view.cards.some((card) => !card.revealed && highlighters(card).length > 0);
 
-  function clearSelection() {
-    setPicks([]);
-    setPickHint(null);
-  }
+  // The server is the source of truth (it survives reloads and clears at turn end). Keep the local tap order.
+  const serverMine = view.cards.filter((card) => card.highlightedBy.includes(you.id)).map((card) => card.id);
+  useEffect(() => {
+    if (inflight.current > 0) return;
+    const ordered = [...highlights.current.filter((id) => serverMine.includes(id)), ...serverMine.filter((id) => !highlights.current.includes(id))];
+    highlights.current = ordered;
+    setMyHighlights(ordered);
+  }, [serverMine.join(',')]);
+
+  // A pending guess belongs to its turn.
+  useEffect(() => setPending(null), [isGuessing, view.clueHistory.length]);
 
   useEffect(() => {
-    if (!hasSelection) return undefined;
-    const onKey = (event: KeyboardEvent) => event.key === 'Escape' && clearSelection();
+    if (!hint) return undefined;
+    const timer = window.setTimeout(() => setHint(null), 2600);
+    return () => window.clearTimeout(timer);
+  }, [hint]);
+
+  // The undo countdown. It sends once the window closes, unless the words were revealed or the turn moved on.
+  useEffect(() => {
+    if (!pending) return undefined;
+    const timer = window.setInterval(() => setNow(Date.now()), 200);
+    return () => window.clearInterval(timer);
+  }, [pending]);
+
+  useEffect(() => {
+    if (!pending) return;
+    if (!isGuessing || !pendingCards.length) {
+      setPending(null);
+    } else if (now >= pending.until) {
+      const ids = pendingCards.map((card) => card.id);
+      setPending(null);
+      void act(ids.length === 1 ? { type: 'guess', cardId: ids[0] } : { type: 'guesses', cardIds: ids });
+    }
+  }, [now, isGuessing, pendingCards.length]);
+
+  useEffect(() => {
+    if (!marked && !pending) return undefined;
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return;
+      setMarkedId(null);
+      setPending(null);
+    };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [hasSelection]);
+  }, [marked, pending]);
 
   async function submitClue(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -517,49 +565,72 @@ function Table({ view, act, log }: { view: RoomView; act: Act; log: LogEntry[] }
     }
   }
 
+  function setHighlights(ids: string[]) {
+    highlights.current = ids;
+    setMyHighlights(ids);
+    inflight.current += 1;
+    void act({ type: 'set-highlights', cardIds: ids }).then((next) => {
+      inflight.current -= 1;
+      if (next) return;
+      // Refused (say the turn just ended): fall back to what the server has.
+      const server = view.cards.filter((card) => card.highlightedBy.includes(you.id)).map((card) => card.id);
+      highlights.current = server;
+      setMyHighlights(server);
+    });
+  }
+
+  function toggleHighlight(id: string) {
+    const card = view.cards.find((item) => item.id === id);
+    if (!card || !isGuessable(card)) return;
+    const base = highlights.current.filter((item) => unrevealedIds.has(item));
+    setHighlights(base.includes(id) ? base.filter((item) => item !== id) : [...base, id]);
+  }
+
+  function startGuess(ids: string[]) {
+    if (!ids.length || pending) return;
+    if (ids.length > maxPicks) return setHint(`This clue has ${maxPicks} ${maxPicks === 1 ? 'guess' : 'guesses'} left`);
+    setNow(Date.now());
+    setPending({ ids, until: Date.now() + UNDO_SECONDS * 1000 });
+  }
+
+  const gesture = useTapOrHold({
+    onTap: toggleHighlight,
+    onHold: (id) => startGuess([id]),
+    onShortHold: () => setHint('Keep holding until the bar fills to guess'),
+  });
+
   function markCard(card: CardView) {
-    const ids = picks.current.filter((id) => view.cards.some((item) => item.id === id && isSelectable(item)));
-    setPickHint(null);
-    if (ids.includes(card.id)) return setPicks(ids.filter((id) => id !== card.id));
-    // A penalty reveal is always a single card: a new tap moves the mark.
-    if (canPenaltyReveal) return setPicks([card.id]);
-    if (ids.length >= maxPicks) {
-      setPicks(ids);
-      return setPickHint(`Max ${maxPicks} ${maxPicks === 1 ? 'pick' : 'picks'} on this clue`);
-    }
-    setPicks([...ids, card.id]);
+    setMarkedId(marked?.id === card.id ? null : card.id);
   }
 
-  const submitPicks = () => act({ type: 'guesses', cardIds: selected.map((card) => card.id) });
-
-  async function confirmCard() {
-    if (!hasSelection || submitting) return;
+  async function confirmPenalty() {
+    if (!marked || submitting) return;
     setSubmitting(true);
-    const ok = await (canPenaltyReveal ? act({ type: 'penalty-reveal', cardId: selected[0].id }) : submitPicks());
+    const ok = await act({ type: 'penalty-reveal', cardId: marked.id });
     setSubmitting(false);
-    if (ok) clearSelection();
+    if (ok) setMarkedId(null);
   }
 
-  // End turn submits the marked words (if any), then passes the turn if the guesses didn't already.
   async function endTurn() {
     if (submitting) return;
     setSubmitting(true);
-    if (hasSelection) {
-      const next = await submitPicks();
-      if (next) clearSelection();
-      if (next?.phase === 'guessing' && next.activeTeam === activeTeam) await act({ type: 'end-turn' });
-    } else {
-      await act({ type: 'end-turn' });
-    }
+    setPending(null);
+    await act({ type: 'end-turn' });
     setSubmitting(false);
   }
 
+  /** The card's own look (map key or revealed role), plus whatever is happening to it right now. */
   function cardState(card: CardView): { tone: string; label: string } {
-    const pick = selected.findIndex((item) => item.id === card.id);
-    if (pick >= 0) {
-      const label = canPenaltyReveal ? 'Reveal target' : selected.length > 1 ? `Pick ${pick + 1}` : 'Target marked';
-      return { tone: showKey && card.role ? `key-${card.role} is-selected` : 'is-selected', label };
-    }
+    const base = baseState(card);
+    if (card.revealed) return base;
+    if (card.id === marked?.id) return { tone: `${base.tone} is-selected`, label: 'Reveal target' };
+    if (pendingCards.some((item) => item.id === card.id)) return { tone: `${base.tone} is-pending`, label: `Guessing in ${secondsLeft}` };
+    if (gesture.holding === card.id) return { tone: `${base.tone} is-holding`, label: 'Keep holding' };
+    if (highlighters(card).length) return { tone: `${base.tone} is-highlighted${mine.includes(card.id) ? ' is-mine' : ''}`, label: showKey ? base.label : 'Highlighted' };
+    return base;
+  }
+
+  function baseState(card: CardView): { tone: string; label: string } {
     if (showKey && card.role) {
       if (card.revealed) return { tone: 'resolved', label: 'Resolved' };
       if (card.role === 'assassin') return { tone: 'key-assassin', label: 'Assassin' };
@@ -577,26 +648,35 @@ function Table({ view, act, log }: { view: RoomView; act: Act; log: LogEntry[] }
   function renderCard(card: CardView) {
     const keyed = showKey && card.role !== null && !card.revealed;
     const penaltyTarget = isPenaltyTarget(card);
-    const selectable = isSelectable(card);
-    const isSelected = selected.some((item) => item.id === card.id);
+    const guessable = isGuessable(card);
+    const who = card.revealed ? [] : highlighters(card);
     const { tone, label } = cardState(card);
     const assassin = tone.includes('assassin');
     const aria = card.revealed && card.role
       ? `${card.word}, revealed as ${roleLabel(card.role, teamNames)}`
-      : `${card.word}${keyed && card.role ? `, hidden role: ${roleLabel(card.role, teamNames)}` : ''}${penaltyTarget ? ', select for penalty reveal' : ''}`;
+      : `${card.word}${keyed && card.role ? `, hidden role: ${roleLabel(card.role, teamNames)}` : ''}${who.length ? `, highlighted by ${who.map(playerName).join(', ')}` : ''}${penaltyTarget ? ', select for penalty reveal' : ''}${guessable ? '. Tap to highlight, press and hold to guess' : ''}`;
+    const interaction = guessable ? gesture.bind(card.id) : { onClick: () => markCard(card) };
 
     return (
       <button
         key={card.id}
         type="button"
         className={`word-card ${tone}`.trim()}
-        disabled={!selectable}
-        onClick={() => markCard(card)}
-        aria-pressed={selectable ? isSelected : undefined}
+        disabled={!guessable && !penaltyTarget}
+        {...interaction}
+        aria-pressed={guessable ? mine.includes(card.id) : penaltyTarget ? card.id === marked?.id : undefined}
         aria-label={aria}
         data-testid={`card-word-${card.id}`}
         data-role={card.revealed ? card.role ?? undefined : undefined}
+        style={{ '--hold-ms': `${HOLD_MS}ms` } as CSSProperties}
       >
+        {who.length > 0 && (
+          <span className="highlight-chips" aria-hidden="true" title={`Highlighted by ${who.map(playerName).join(', ')}`}>
+            {who.slice(0, 3).map((id) => <i key={id} className={id === you.id ? 'mine' : ''}>{initials(playerName(id))}</i>)}
+            {who.length > 3 && <i>+{who.length - 3}</i>}
+          </span>
+        )}
+        {gesture.holding === card.id && <span className="hold-fill" aria-hidden="true" />}
         {!assassin && <span className="card-label">{label}</span>}
         <span className="card-word">{card.word}</span>
         {assassin ? (
@@ -644,33 +724,48 @@ function Table({ view, act, log }: { view: RoomView; act: Act; log: LogEntry[] }
           {!finished && (!isSpymaster || phase === 'guessing') && (
             <ClueBroadcast view={view}>
               {isGuessing && (
-                <div className="guess-actions" role="group" aria-label="Confirm your guesses" data-testid="panel-guess-confirm">
+                <div className="guess-actions" role="group" aria-label="Your guesses" data-testid="panel-guess-confirm">
                   <div className="guess-target" aria-live="polite">
-                    <span className={`mono-label${pickHint ? ' gold' : ''}`} data-testid="text-pick-status">
-                      {pickHint ?? (hasSelection ? `${selected.length} ${selected.length === 1 ? 'target' : 'targets'} marked` : 'No target marked')}
+                    <span className={`mono-label${hint || pending ? ' gold' : ''}`} data-testid="text-pick-status">
+                      {pending ? `Guessing in ${secondsLeft}…` : hint ?? (mine.length ? `${mine.length} highlighted` : 'Tap to highlight · hold to guess')}
                     </span>
-                    <b data-testid="text-selected-card" title={selected.map((card) => card.word).join(', ')}>
-                      {hasSelection ? selected.map((card) => card.word).join(' · ') : 'Tap words to mark them'}
+                    <b data-testid="text-selected-card" title={(pending ? pendingCards : mineCards).map((card) => card.word).join(', ')}>
+                      {pending ? pendingCards.map((card) => card.word).join(' · ') : mine.length ? mineCards.map((card) => card.word).join(' · ') : 'Nothing highlighted'}
                     </b>
                   </div>
-                  {hasSelection && (
-                    <button type="button" className="icon-button" aria-label="Clear marked words" onClick={clearSelection} data-testid="button-clear-guess"><X size={16} /></button>
-                  )}
-                  {hasSelection && (
-                    <button type="button" className="ghost-button" onClick={confirmCard} disabled={submitting} data-testid="button-submit-guess">
-                      {selected.length > 1 ? `Submit ${selected.length}` : 'Submit'}
+                  {pending ? (
+                    <button type="button" className="solid-button" onClick={() => setPending(null)} data-testid="button-undo-guess">
+                      <Undo2 size={15} /> Undo
                     </button>
+                  ) : (
+                    <>
+                      {mine.length > 0 && (
+                        <button type="button" className="icon-button" aria-label="Clear my highlights" onClick={() => setHighlights([])} data-testid="button-clear-guess"><X size={16} /></button>
+                      )}
+                      {mine.length > 0 && (
+                        <button
+                          type="button"
+                          className="ghost-button"
+                          onClick={() => startGuess(mine)}
+                          disabled={mine.length > maxPicks}
+                          title={mine.length > maxPicks ? `This clue has ${maxPicks} guesses left.` : `Guesses your highlights in the order you tapped them, after a ${UNDO_SECONDS}-second undo.`}
+                          data-testid="button-submit-guess"
+                        >
+                          {mine.length > 1 ? `Guess all ${mine.length}` : 'Guess it'}
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        className="solid-button"
+                        onClick={endTurn}
+                        disabled={submitting || view.turnGuesses < 1}
+                        title={view.turnGuesses < 1 ? 'You must make one guess before the turn can end.' : 'Passes the turn. Highlights are not guessed.'}
+                        data-testid="button-stop-turn"
+                      >
+                        End turn
+                      </button>
+                    </>
                   )}
-                  <button
-                    type="button"
-                    className="solid-button"
-                    onClick={endTurn}
-                    disabled={submitting || (!hasSelection && view.turnGuesses < 1)}
-                    title={!hasSelection && view.turnGuesses < 1 ? 'Mark a word first. You must make one guess before the turn can end.' : hasSelection ? 'Submits the marked words in order, then passes the turn.' : undefined}
-                    data-testid="button-stop-turn"
-                  >
-                    End turn
-                  </button>
                 </div>
               )}
             </ClueBroadcast>
@@ -694,8 +789,8 @@ function Table({ view, act, log }: { view: RoomView; act: Act; log: LogEntry[] }
               <p>Mark one unrevealed {activeName} card and confirm to reveal it, then give your clue.</p>
               <div className="action-row">
                 {canPenaltyReveal && (
-                  <button className="solid-button" type="button" disabled={!hasSelection || submitting} onClick={confirmCard} data-testid="button-confirm-penalty">
-                    {hasSelection ? `Reveal ${selected[0].word}` : 'Mark a card'}
+                  <button className="solid-button" type="button" disabled={!marked || submitting} onClick={confirmPenalty} data-testid="button-confirm-penalty">
+                    {marked ? `Reveal ${marked.word}` : 'Mark a card'}
                   </button>
                 )}
                 {!mapVisible && <button className="ghost-button" type="button" onClick={() => setMapVisible(true)} data-testid="button-show-penalty-map">Show the map</button>}
@@ -704,9 +799,16 @@ function Table({ view, act, log }: { view: RoomView; act: Act; log: LogEntry[] }
             </div>
           )}
 
+          {!finished && <GestureTips guessing={isGuessing} highlightsVisible={anyHighlights} />}
+
           <div className="board" role="group" aria-label={showKey ? 'Word board with secret roles' : 'Word board'}>
             {view.cards.map(renderCard)}
           </div>
+          {isGuessing && (
+            <p className="gesture-caption" data-testid="text-gesture-caption">
+              <b>Tap</b> to highlight · <b>Press &amp; hold</b> to guess · {UNDO_SECONDS}s to undo
+            </p>
+          )}
         </section>
 
         <aside className="game-side">
@@ -907,6 +1009,11 @@ function ReviewDialog({ view, act }: { view: RoomView; act: Act }) {
   );
 }
 
+function initials(name: string): string {
+  const parts = name.trim().split(/\s+/).filter(Boolean);
+  return (parts.length > 1 ? parts[0][0] + parts[1][0] : name.slice(0, 2)).toUpperCase();
+}
+
 function RulesDialog({ onClose }: { onClose: () => void }) {
   return (
     <div className="overlay" role="presentation" onMouseDown={(event) => {
@@ -923,14 +1030,18 @@ function RulesDialog({ onClose }: { onClose: () => void }) {
         <p className="dialog-copy">Two teams, each with one spymaster and some operatives. Everyone joins the same room on their own device.</p>
         <ol className="rule-list">
           <li>The spymaster gives a single-word clue and a number. The number means that many targets, plus one extra guess.</li>
-          <li>Operatives mark one or more words, then Submit to keep guessing or End turn to submit them and pass. Picks are revealed in the order you marked them. A friendly agent keeps the turn going; a neutral or rival card passes it and any remaining picks stay hidden.</li>
+          <li>Operatives <b>tap</b> a word to highlight it. Everyone sees highlights, with initials showing who picked them, so the team can talk it through. Highlights are never guesses.</li>
+          <li>To guess, <b>press and hold</b> a word until its bar fills, then you have {UNDO_SECONDS} seconds to undo. “Guess all” guesses your highlights in the order you tapped them. A friendly agent keeps the turn going; a neutral or rival card passes it and any remaining guesses stay hidden.</li>
           <li>A zero or unlimited clue has no numeric cap. You must guess at least once before ending the turn.</li>
           <li>Find every friendly agent to win. The assassin ends the game immediately for the other team.</li>
           <li>A clue can’t be a word on the board, or part of one. If it’s close to one (like SHARKS for SHARK), the opposing spymaster decides on their own screen whether it stands.</li>
           <li>In the lobby, the host picks the word packs and can add the table’s own words. Custom words always make the board.</li>
         </ol>
         <p className="dialog-copy">Only spymasters’ devices receive the secret map, so there’s nothing for operatives to peek at.</p>
-        <div className="dialog-actions"><button type="button" className="gold-button compact" onClick={onClose} data-testid="button-rules-got-it">Understood</button></div>
+        <div className="dialog-actions">
+          <button type="button" className="ghost-button compact" onClick={() => { resetGestureTips(); onClose(); }} data-testid="button-show-tips">Show gesture tips again</button>
+          <button type="button" className="gold-button compact" onClick={onClose} data-testid="button-rules-got-it">Understood</button>
+        </div>
       </section>
     </div>
   );

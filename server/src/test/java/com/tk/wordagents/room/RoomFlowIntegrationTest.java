@@ -242,6 +242,11 @@ class RoomFlowIntegrationTest {
 
         String friendly = cardWithRole(firstSpyView, first);
         assertThat(act(firstSpy, "{\"type\":\"guess\",\"cardId\":\"" + friendly + "\"}").status()).isEqualTo(409);
+        assertThat(act(firstOp, "{\"type\":\"set-highlights\",\"cardIds\":[\"" + friendly + "\"]}").status()).isEqualTo(200);
+        Seat rivalOp = first.equals("red") ? blueOp : redOp;
+        JsonNode rivalView = call("GET", "/rooms/" + code + "/view", null, rivalOp.token()).body();
+        assertThat(cards(rivalView)).as("everyone sees highlights")
+            .anyMatch(card -> card.get("id").asString().equals(friendly) && card.get("highlightedBy").get(0).asString().equals(firstOp.playerId()));
         assertThat(act(firstOp, "{\"type\":\"guesses\",\"cardIds\":[\"" + friendly + "\",\"" + friendly + "\"]}").body().get("error").asString())
             .contains("only be picked once");
         assertThat(act(firstOp, "{\"type\":\"guesses\",\"cardIds\":[\"" + friendly + "\"]}").status()).isEqualTo(200);

@@ -9,6 +9,7 @@ import jakarta.persistence.Id;
 import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
 import jakarta.persistence.Table;
+import java.util.List;
 import org.hibernate.annotations.JdbcTypeCode;
 import org.hibernate.type.SqlTypes;
 
@@ -40,6 +41,10 @@ public class Player {
     @Column(name = "join_order", nullable = false)
     private int joinOrder;
 
+    /** Card ids this operative has highlighted this turn, comma-separated in the order tapped. Everyone sees them. */
+    @Column(name = "highlights")
+    private String highlights;
+
     protected Player() {}
 
     public Player(Room room, String id, String tokenHash, String name, int joinOrder) {
@@ -63,4 +68,12 @@ public class Player {
     public Seat getSeat() { return seat; }
     public void setSeat(Seat seat) { this.seat = seat; }
     public int getJoinOrder() { return joinOrder; }
+
+    public List<String> getHighlights() {
+        return highlights == null || highlights.isEmpty() ? List.of() : List.of(highlights.split(","));
+    }
+
+    void setHighlights(List<String> cardIds) {
+        highlights = cardIds.isEmpty() ? null : String.join(",", cardIds);
+    }
 }

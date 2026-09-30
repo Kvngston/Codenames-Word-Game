@@ -59,6 +59,11 @@ public final class GameRules {
         room.setResultMessage("");
         room.setPenaltyRevealPending(false);
         room.setLastEvent("");
+        clearHighlights(room);
+    }
+
+    private static void clearHighlights(Room room) {
+        room.getPlayers().forEach(player -> player.setHighlights(List.of()));
     }
 
     /**
@@ -294,6 +299,15 @@ public final class GameRules {
 
             case GameAction.Guesses(List<String> cardIds) -> guess(room, player, cardIds == null ? List.of() : cardIds);
 
+            case GameAction.SetHighlights(List<String> rawIds) -> {
+                ensure(room.getPhase() == Phase.GUESSING, "Highlights are for the guessing turn.");
+                // Spymasters never highlight: it would give the map away.
+                ensure(isActiveOperative, "Only " + room.teamName(active) + " operatives can highlight words right now.");
+                List<String> ids = rawIds == null ? List.of() : rawIds.stream().distinct().toList();
+                ids.forEach(id -> findCard(room, id));
+                player.setHighlights(ids);
+            }
+
             case GameAction.EndTurn() -> {
                 ensure(room.getPhase() == Phase.GUESSING, "There is no guessing turn to end.");
                 ensure(isActiveOperative, "Only " + room.teamName(active) + " operatives can end this turn.");
@@ -340,6 +354,7 @@ public final class GameRules {
     private static void reveal(Room room, Card card, Team active) {
         Team rival = active.other();
         card.reveal();
+        room.getPlayers().forEach(player -> player.setHighlights(player.getHighlights().stream().filter(id -> !id.equals(card.getCardId())).toList()));
         if (card.getRole() == CardRole.ASSASSIN) {
             finish(room, rival, room.teamName(active) + " uncovered the assassin.");
         } else if (card.getRole() == active.cardRole()) {
@@ -378,6 +393,7 @@ public final class GameRules {
         room.setTurnGuesses(0);
         room.setPendingReview(null);
         room.setPenaltyRevealPending(penaltyRevealPending);
+        clearHighlights(room);
     }
 
     private static void finish(Room room, Team winner, String message) {
@@ -387,6 +403,7 @@ public final class GameRules {
         room.setPenaltyRevealPending(false);
         room.setPendingReview(null);
         room.setGuessesRemaining(Count.of(0));
+        clearHighlights(room);
     }
 
     private static Card findCard(Room room, String cardId) {

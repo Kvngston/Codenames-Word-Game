@@ -1,0 +1,11 @@
+# Operatives' highlighted words for the current turn: card ids, comma-separated
+# in the order tapped (at most 25 ids of 36 characters). Cleared every turn.
+databaseChangeLog:
+  - changeSet:
+      id: 003-player-highlights
+      author: word-agents
+      changes:
+        - addColumn:
+            tableName: players
+            columns:
+              - column: { name: highlights, type: VARCHAR(1000) }
