@@ -1,4 +1,4 @@
-import type { PlayerView, Team } from './types';
+import type { CardView, PlayerView, Team } from './types';
 
 export function otherTeam(team: Team): Team {
   return team === 'red' ? 'blue' : 'red';
@@ -25,4 +25,24 @@ export function parseWords(text: string): string[] {
     if (word) seen.add(word);
   }
   return [...seen];
+}
+
+const wordParts = (text: string) => text.trim().toLowerCase().split(/[\s-]+/).filter(Boolean);
+
+/**
+ * Mirrors GameRules.boardConflict: a clue can't be an unrevealed board word,
+ * a part of one, or one written without its spaces. Returns why, or null.
+ */
+export function clueConflict(clue: string, cards: Pick<CardView, 'word' | 'revealed'>[]): string | null {
+  const parts = wordParts(clue);
+  const joined = parts.join('');
+  if (!joined) return null;
+  for (const card of cards) {
+    if (card.revealed) continue;
+    const cardParts = wordParts(card.word);
+    if (joined === cardParts.join('')) return `“${card.word}” is on the board. Pick a clue that isn’t one of the words.`;
+    const part = parts.find((item) => cardParts.includes(item));
+    if (part) return `“${part.toUpperCase()}” is part of “${card.word}” on the board. Pick a different clue.`;
+  }
+  return null;
 }

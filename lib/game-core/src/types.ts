@@ -89,6 +89,7 @@ export type Action =
   | { type: 'penalty-reveal'; cardId: string }
   | { type: 'skip-penalty' }
   | { type: 'guess'; cardId: string }
+  | { type: 'guesses'; cardIds: string[] }
   | { type: 'end-turn' }
   | { type: 'new-game' };
 

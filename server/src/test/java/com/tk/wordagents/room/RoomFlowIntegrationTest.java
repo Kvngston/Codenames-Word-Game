@@ -230,6 +230,10 @@ class RoomFlowIntegrationTest {
         assertThat(act(secondSpy, "{\"type\":\"give-clue\",\"word\":\"OCEAN\",\"number\":2}").status()).isEqualTo(409);
         assertThat(act(firstSpy, "{\"type\":\"give-clue\",\"word\":\"OCEAN\",\"number\":42}").status()).isEqualTo(409);
         assertThat(act(firstSpy, "{\"type\":\"give-clue\",\"word\":\"OCEAN\",\"number\":\"lots\"}").status()).isEqualTo(400);
+        String boardWord = cards(firstSpyView).getFirst().get("word").asString();
+        Response onBoard = act(firstSpy, "{\"type\":\"give-clue\",\"word\":\"" + boardWord + "\",\"number\":2}");
+        assertThat(onBoard.status()).isEqualTo(409);
+        assertThat(onBoard.body().get("error").asString()).contains("on the board");
         assertThat(act(firstSpy, "{\"type\":\"give-clue\",\"word\":\"OCEAN\",\"number\":\"unlimited\"}").status()).isEqualTo(200);
 
         JsonNode guessing = awaitView(opViews, view -> view.get("phase").asString().equals("guessing"));
@@ -238,7 +242,9 @@ class RoomFlowIntegrationTest {
 
         String friendly = cardWithRole(firstSpyView, first);
         assertThat(act(firstSpy, "{\"type\":\"guess\",\"cardId\":\"" + friendly + "\"}").status()).isEqualTo(409);
-        assertThat(act(firstOp, "{\"type\":\"guess\",\"cardId\":\"" + friendly + "\"}").status()).isEqualTo(200);
+        assertThat(act(firstOp, "{\"type\":\"guesses\",\"cardIds\":[\"" + friendly + "\",\"" + friendly + "\"]}").body().get("error").asString())
+            .contains("only be picked once");
+        assertThat(act(firstOp, "{\"type\":\"guesses\",\"cardIds\":[\"" + friendly + "\"]}").status()).isEqualTo(200);
         JsonNode afterGuess = awaitView(opViews, view -> cards(view).stream().anyMatch(card -> card.get("revealed").asBoolean()));
         assertThat(cards(afterGuess)).filteredOn(card -> !card.get("role").isNull()).hasSize(1)
             .allMatch(card -> card.get("id").asString().equals(friendly) && card.get("role").asString().equals(first));

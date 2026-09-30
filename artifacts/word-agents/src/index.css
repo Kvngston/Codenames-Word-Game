@@ -277,8 +277,11 @@ button.brand-exit:hover { color: #f0bb4d; }
 .result-broadcast { border-color: var(--gold); background: var(--gold-tint); }
 .result-broadcast .broadcast-word { font-size: 26px; }
 
-.guess-actions { display: flex; align-items: center; gap: 12px; flex: none; }
-.guess-target { display: flex; flex-direction: column; align-items: flex-end; gap: 2px; min-width: 0; max-width: 180px; margin-right: 4px; }
+.guess-actions { display: flex; align-items: center; gap: 12px; flex: 0 1 auto; min-width: 0; }
+.broadcast > .broadcast-body { flex: 1 1 auto; min-width: 180px; }
+.guess-target { display: flex; flex-direction: column; align-items: flex-end; gap: 2px; min-width: 0; max-width: 220px; margin-right: 4px; }
+.guess-target .mono-label { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.field-error { margin: 6px 0 0; font-size: 12px; line-height: 1.45; color: var(--red); }
 .guess-target b { max-width: 100%; font: 700 18px var(--word); letter-spacing: .5px; text-transform: uppercase; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .guess-actions .icon-button { width: 42px; height: 42px; }
 

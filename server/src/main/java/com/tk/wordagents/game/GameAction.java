@@ -17,6 +17,7 @@ import java.util.List;
     @JsonSubTypes.Type(value = GameAction.PenaltyReveal.class, name = "penalty-reveal"),
     @JsonSubTypes.Type(value = GameAction.SkipPenalty.class, name = "skip-penalty"),
     @JsonSubTypes.Type(value = GameAction.Guess.class, name = "guess"),
+    @JsonSubTypes.Type(value = GameAction.Guesses.class, name = "guesses"),
     @JsonSubTypes.Type(value = GameAction.EndTurn.class, name = "end-turn"),
     @JsonSubTypes.Type(value = GameAction.NewGame.class, name = "new-game"),
 })
@@ -42,6 +43,9 @@ public sealed interface GameAction {
     record SkipPenalty() implements GameAction {}
 
     record Guess(String cardId) implements GameAction {}
+
+    /** Several picks at once, revealed in this order until the turn ends. */
+    record Guesses(List<String> cardIds) implements GameAction {}
 
     record EndTurn() implements GameAction {}
 

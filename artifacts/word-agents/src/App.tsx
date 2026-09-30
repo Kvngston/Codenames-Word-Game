@@ -20,6 +20,7 @@ import {
   X,
 } from 'lucide-react';
 import {
+  clueConflict,
   otherTeam,
   seatingProblem,
   type Action,
@@ -462,8 +463,11 @@ function Table({ view, act, log }: { view: RoomView; act: Act; log: LogEntry[] }
   const [clueDraft, setClueDraft] = useState('');
   // Digits only, 0 to 9 (the server's range). Kept as text so the field can be empty while typing.
   const [numberDraft, setNumberDraft] = useState('');
-  // A tapped card is only marked; nothing is sent until the choice is confirmed.
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+  // Tapped cards are only marked, in tap order; nothing is sent until the picks are submitted.
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  // The latest picks, so taps landing before a re-render still build on each other.
+  const picks = useRef<string[]>([]);
+  const [pickHint, setPickHint] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
   const { you, teamNames, activeTeam, phase } = view;
@@ -479,18 +483,34 @@ function Table({ view, act, log }: { view: RoomView; act: Act; log: LogEntry[] }
   const isPenaltyTarget = (card: CardView) => canPenaltyReveal && card.role === activeTeam && !card.revealed;
   const isSelectable = (card: CardView) => (isGuessing && !card.revealed) || isPenaltyTarget(card);
   // Derived, so a mark disappears by itself once the card is revealed or the turn moves on.
-  const selected = view.cards.find((card) => card.id === selectedId && isSelectable(card)) ?? null;
+  const selected = selectedIds
+    .map((id) => view.cards.find((card) => card.id === id))
+    .filter((card): card is CardView => card !== undefined && isSelectable(card));
+  const hasSelection = selected.length > 0;
+  // A numeric clue caps how many picks can go in at once (the number, plus one).
+  const maxPicks = canPenaltyReveal ? 1 : view.guessesRemaining === 'unlimited' ? Infinity : view.guessesRemaining;
+  const clueProblem = clueConflict(clueDraft, view.cards);
+
+  function setPicks(ids: string[]) {
+    picks.current = ids;
+    setSelectedIds(ids);
+  }
+
+  function clearSelection() {
+    setPicks([]);
+    setPickHint(null);
+  }
 
   useEffect(() => {
-    if (!selected) return undefined;
-    const onKey = (event: KeyboardEvent) => event.key === 'Escape' && setSelectedId(null);
+    if (!hasSelection) return undefined;
+    const onKey = (event: KeyboardEvent) => event.key === 'Escape' && clearSelection();
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [selected]);
+  }, [hasSelection]);
 
   async function submitClue(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (numberDraft === '') return;
+    if (numberDraft === '' || clueProblem) return;
     if (await act({ type: 'give-clue', word: clueDraft, number: Number(numberDraft) })) {
       setClueDraft('');
       setNumberDraft('');
@@ -498,24 +518,35 @@ function Table({ view, act, log }: { view: RoomView; act: Act; log: LogEntry[] }
   }
 
   function markCard(card: CardView) {
-    setSelectedId(selected?.id === card.id ? null : card.id);
+    const ids = picks.current.filter((id) => view.cards.some((item) => item.id === id && isSelectable(item)));
+    setPickHint(null);
+    if (ids.includes(card.id)) return setPicks(ids.filter((id) => id !== card.id));
+    // A penalty reveal is always a single card: a new tap moves the mark.
+    if (canPenaltyReveal) return setPicks([card.id]);
+    if (ids.length >= maxPicks) {
+      setPicks(ids);
+      return setPickHint(`Max ${maxPicks} ${maxPicks === 1 ? 'pick' : 'picks'} on this clue`);
+    }
+    setPicks([...ids, card.id]);
   }
+
+  const submitPicks = () => act({ type: 'guesses', cardIds: selected.map((card) => card.id) });
 
   async function confirmCard() {
-    if (!selected || submitting) return;
+    if (!hasSelection || submitting) return;
     setSubmitting(true);
-    const ok = await act(canPenaltyReveal ? { type: 'penalty-reveal', cardId: selected.id } : { type: 'guess', cardId: selected.id });
+    const ok = await (canPenaltyReveal ? act({ type: 'penalty-reveal', cardId: selected[0].id }) : submitPicks());
     setSubmitting(false);
-    if (ok) setSelectedId(null);
+    if (ok) clearSelection();
   }
 
-  // End turn submits the marked word (if any), then passes the turn if the guess didn't already.
+  // End turn submits the marked words (if any), then passes the turn if the guesses didn't already.
   async function endTurn() {
     if (submitting) return;
     setSubmitting(true);
-    if (selected) {
-      const next = await act({ type: 'guess', cardId: selected.id });
-      if (next) setSelectedId(null);
+    if (hasSelection) {
+      const next = await submitPicks();
+      if (next) clearSelection();
       if (next?.phase === 'guessing' && next.activeTeam === activeTeam) await act({ type: 'end-turn' });
     } else {
       await act({ type: 'end-turn' });
@@ -524,7 +555,11 @@ function Table({ view, act, log }: { view: RoomView; act: Act; log: LogEntry[] }
   }
 
   function cardState(card: CardView): { tone: string; label: string } {
-    if (card.id === selected?.id) return { tone: showKey && card.role ? `key-${card.role} is-selected` : 'is-selected', label: canPenaltyReveal ? 'Reveal target' : 'Target marked' };
+    const pick = selected.findIndex((item) => item.id === card.id);
+    if (pick >= 0) {
+      const label = canPenaltyReveal ? 'Reveal target' : selected.length > 1 ? `Pick ${pick + 1}` : 'Target marked';
+      return { tone: showKey && card.role ? `key-${card.role} is-selected` : 'is-selected', label };
+    }
     if (showKey && card.role) {
       if (card.revealed) return { tone: 'resolved', label: 'Resolved' };
       if (card.role === 'assassin') return { tone: 'key-assassin', label: 'Assassin' };
@@ -543,7 +578,7 @@ function Table({ view, act, log }: { view: RoomView; act: Act; log: LogEntry[] }
     const keyed = showKey && card.role !== null && !card.revealed;
     const penaltyTarget = isPenaltyTarget(card);
     const selectable = isSelectable(card);
-    const isSelected = selected?.id === card.id;
+    const isSelected = selected.some((item) => item.id === card.id);
     const { tone, label } = cardState(card);
     const assassin = tone.includes('assassin');
     const aria = card.revealed && card.role
@@ -609,25 +644,29 @@ function Table({ view, act, log }: { view: RoomView; act: Act; log: LogEntry[] }
           {!finished && (!isSpymaster || phase === 'guessing') && (
             <ClueBroadcast view={view}>
               {isGuessing && (
-                <div className="guess-actions" role="group" aria-label="Confirm your guess" data-testid="panel-guess-confirm">
+                <div className="guess-actions" role="group" aria-label="Confirm your guesses" data-testid="panel-guess-confirm">
                   <div className="guess-target" aria-live="polite">
-                    <span className="mono-label">{selected ? 'Target marked' : 'No target marked'}</span>
-                    <b data-testid="text-selected-card">{selected ? selected.word : 'Tap a word'}</b>
+                    <span className={`mono-label${pickHint ? ' gold' : ''}`} data-testid="text-pick-status">
+                      {pickHint ?? (hasSelection ? `${selected.length} ${selected.length === 1 ? 'target' : 'targets'} marked` : 'No target marked')}
+                    </span>
+                    <b data-testid="text-selected-card" title={selected.map((card) => card.word).join(', ')}>
+                      {hasSelection ? selected.map((card) => card.word).join(' · ') : 'Tap words to mark them'}
+                    </b>
                   </div>
-                  {selected && (
-                    <button type="button" className="icon-button" aria-label="Clear marked word" onClick={() => setSelectedId(null)} data-testid="button-clear-guess"><X size={16} /></button>
+                  {hasSelection && (
+                    <button type="button" className="icon-button" aria-label="Clear marked words" onClick={clearSelection} data-testid="button-clear-guess"><X size={16} /></button>
                   )}
-                  {selected && (
+                  {hasSelection && (
                     <button type="button" className="ghost-button" onClick={confirmCard} disabled={submitting} data-testid="button-submit-guess">
-                      Submit
+                      {selected.length > 1 ? `Submit ${selected.length}` : 'Submit'}
                     </button>
                   )}
                   <button
                     type="button"
                     className="solid-button"
                     onClick={endTurn}
-                    disabled={submitting || (!selected && view.turnGuesses < 1)}
-                    title={!selected && view.turnGuesses < 1 ? 'Mark a word first. You must make one guess before the turn can end.' : selected ? 'Submits the marked word, then passes the turn.' : undefined}
+                    disabled={submitting || (!hasSelection && view.turnGuesses < 1)}
+                    title={!hasSelection && view.turnGuesses < 1 ? 'Mark a word first. You must make one guess before the turn can end.' : hasSelection ? 'Submits the marked words in order, then passes the turn.' : undefined}
                     data-testid="button-stop-turn"
                   >
                     End turn
@@ -655,8 +694,8 @@ function Table({ view, act, log }: { view: RoomView; act: Act; log: LogEntry[] }
               <p>Mark one unrevealed {activeName} card and confirm to reveal it, then give your clue.</p>
               <div className="action-row">
                 {canPenaltyReveal && (
-                  <button className="solid-button" type="button" disabled={!selected || submitting} onClick={confirmCard} data-testid="button-confirm-penalty">
-                    {selected ? `Reveal ${selected.word}` : 'Mark a card'}
+                  <button className="solid-button" type="button" disabled={!hasSelection || submitting} onClick={confirmCard} data-testid="button-confirm-penalty">
+                    {hasSelection ? `Reveal ${selected[0].word}` : 'Mark a card'}
                   </button>
                 )}
                 {!mapVisible && <button className="ghost-button" type="button" onClick={() => setMapVisible(true)} data-testid="button-show-penalty-map">Show the map</button>}
@@ -701,16 +740,28 @@ function Table({ view, act, log }: { view: RoomView; act: Act; log: LogEntry[] }
                   <p className="muted-copy small">Use the map to reveal one of your own cards for the clue penalty, or skip it.</p>
                 ) : view.reviewPending ? (
                   <p className="muted-copy small" data-testid="status-review-waiting">
-                    “{view.review?.word}” matches a word on the board. The {teamNames[otherTeam(activeTeam)]} spymaster is deciding whether it stands.
+                    “{view.review?.word}” is close to a word on the board. The {teamNames[otherTeam(activeTeam)]} spymaster is deciding whether it stands.
                   </p>
                 ) : (
                   <form className="clue-form" onSubmit={submitClue}>
                     <div className="field">
                       <label className="mono-label" htmlFor="clue-input">Step 1: Entry keyword</label>
                       <div className="input-icon">
-                        <input id="clue-input" className="text-input" value={clueDraft} onChange={(event) => setClueDraft(event.target.value)} placeholder="One word" autoComplete="off" maxLength={32} data-testid="input-clue" />
+                        <input
+                          id="clue-input"
+                          className="text-input"
+                          value={clueDraft}
+                          onChange={(event) => setClueDraft(event.target.value)}
+                          placeholder="One word"
+                          autoComplete="off"
+                          maxLength={32}
+                          aria-invalid={clueProblem ? true : undefined}
+                          aria-describedby={clueProblem ? 'clue-problem' : undefined}
+                          data-testid="input-clue"
+                        />
                         <Pencil size={16} aria-hidden="true" />
                       </div>
+                      {clueProblem && <p className="field-error" id="clue-problem" role="alert" data-testid="text-clue-problem">{clueProblem}</p>}
                     </div>
                     <div className="field">
                       <label className="mono-label" htmlFor="clue-number">Step 2: Target number</label>
@@ -738,7 +789,7 @@ function Table({ view, act, log }: { view: RoomView; act: Act; log: LogEntry[] }
                           : 'Enter a one-word clue and a number from 0 to 9. The number sets your target, plus one extra guess.'}
                       </p>
                     </div>
-                    <button type="submit" className="team-button" disabled={!clueDraft.trim() || numberDraft === ''} data-testid="button-submit-clue">Encrypt &amp; transmit clue</button>
+                    <button type="submit" className="team-button" disabled={!clueDraft.trim() || numberDraft === '' || Boolean(clueProblem)} data-testid="button-submit-clue">Encrypt &amp; transmit clue</button>
                   </form>
                 )}
               </section>
@@ -844,7 +895,7 @@ function ReviewDialog({ view, act }: { view: RoomView; act: Act }) {
           </div>
         </div>
         <p className="dialog-copy">
-          The {view.teamNames[review.team]} spymaster’s clue matches a hidden word or part of a compound word. Meaning and house rules are yours to judge; this check is only a prompt, not an automatic ruling.
+          The {view.teamNames[review.team]} spymaster’s clue is close to a hidden word: it contains one, or sits inside one (like SHARKS for SHARK). Meaning and house rules are yours to judge; this check is only a prompt, not an automatic ruling.
         </p>
         <div className="word-check" data-testid="text-questionable-clue">“{review.word}” · {numberText(review.number)}</div>
         <div className="dialog-actions">
@@ -872,10 +923,10 @@ function RulesDialog({ onClose }: { onClose: () => void }) {
         <p className="dialog-copy">Two teams, each with one spymaster and some operatives. Everyone joins the same room on their own device.</p>
         <ol className="rule-list">
           <li>The spymaster gives a single-word clue and a number. The number means that many targets, plus one extra guess.</li>
-          <li>Operatives mark a word, then Submit to keep guessing or End turn to submit it and pass. A friendly agent keeps the turn going; a neutral or rival card passes it.</li>
+          <li>Operatives mark one or more words, then Submit to keep guessing or End turn to submit them and pass. Picks are revealed in the order you marked them. A friendly agent keeps the turn going; a neutral or rival card passes it and any remaining picks stay hidden.</li>
           <li>A zero or unlimited clue has no numeric cap. You must guess at least once before ending the turn.</li>
           <li>Find every friendly agent to win. The assassin ends the game immediately for the other team.</li>
-          <li>If a clue matches a word on the board, the opposing spymaster decides on their own screen whether it stands.</li>
+          <li>A clue can’t be a word on the board, or part of one. If it’s close to one (like SHARKS for SHARK), the opposing spymaster decides on their own screen whether it stands.</li>
           <li>In the lobby, the host picks the word packs and can add the table’s own words. Custom words always make the board.</li>
         </ol>
         <p className="dialog-copy">Only spymasters’ devices receive the secret map, so there’s nothing for operatives to peek at.</p>
