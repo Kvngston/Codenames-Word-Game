@@ -30,7 +30,10 @@ main() {
   cd "$deploy_dir"
   printf 'APP_VERSION=%s\n' "$tag" > release.env
   docker compose -f compose.prod.yaml up -d --build --remove-orphans
-  # Prometheus doesn't watch its config files; Grafana rescans dashboards itself.
+  # Compose doesn't restart containers when a mounted config file changes, and
+  # neither Caddy nor Prometheus watches its files, so reload both. Grafana
+  # rescans its dashboards by itself.
+  docker compose -f compose.prod.yaml exec -T caddy caddy reload --config /etc/caddy/Caddyfile --adapter caddyfile
   docker compose -f compose.prod.yaml kill -s HUP prometheus > /dev/null
   docker image prune -f > /dev/null
 
