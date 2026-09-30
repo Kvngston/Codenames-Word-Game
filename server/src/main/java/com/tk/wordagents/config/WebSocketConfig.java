@@ -1,6 +1,7 @@
 package com.tk.wordagents.config;
 
 import com.tk.wordagents.room.StompAuthInterceptor;
+import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.messaging.simp.config.ChannelRegistration;
@@ -8,6 +9,7 @@ import org.springframework.messaging.simp.config.MessageBrokerRegistry;
 import org.springframework.web.socket.config.annotation.EnableWebSocketMessageBroker;
 import org.springframework.web.socket.config.annotation.StompEndpointRegistry;
 import org.springframework.web.socket.config.annotation.WebSocketMessageBrokerConfigurer;
+import org.springframework.web.socket.server.standard.ServletServerContainerFactoryBean;
 
 /**
  * STOMP over WebSocket at /ws, relayed through RabbitMQ so several server
@@ -54,5 +56,18 @@ class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
     @Override
     public void configureClientInboundChannel(ChannelRegistration registration) {
         registration.interceptors(auth);
+    }
+
+    /**
+     * Tomcat allocates these receive buffers up front for every session (8 KB
+     * binary and 8K chars of text by default). Clients only ever send CONNECT,
+     * SUBSCRIBE and heart-beats, a few hundred bytes, since moves go over HTTP.
+     */
+    @Bean
+    ServletServerContainerFactoryBean webSocketContainer() {
+        ServletServerContainerFactoryBean container = new ServletServerContainerFactoryBean();
+        container.setMaxTextMessageBufferSize(4096);
+        container.setMaxBinaryMessageBufferSize(4096);
+        return container;
     }
 }

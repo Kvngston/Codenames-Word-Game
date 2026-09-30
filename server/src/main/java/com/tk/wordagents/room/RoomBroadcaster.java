@@ -3,7 +3,18 @@ package com.tk.wordagents.room;
 import com.tk.wordagents.game.Player;
 import com.tk.wordagents.game.Room;
 import com.tk.wordagents.room.RoomViews.RoomView;
+import jakarta.annotation.PreDestroy;
+import java.time.Duration;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.context.event.EventListener;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.stereotype.Component;
@@ -20,12 +31,27 @@ class RoomBroadcaster {
 
     static final String VIEW_DESTINATION = "/topic/view";
 
+    /**
+     * Connects and disconnects in one room within this window share one refresh.
+     * When a server restart or a network blip drops a whole table, its players
+     * reconnect together; refreshing per player sent every view once per reconnect.
+     */
+    static final Duration PRESENCE_BATCH = Duration.ofMillis(300);
+
+    private static final Logger log = LoggerFactory.getLogger(RoomBroadcaster.class);
+
     private record Delivery(String playerId, RoomView view) {}
 
     private final RoomRepository rooms;
     private final Presence presence;
     private final SimpMessagingTemplate messaging;
     private final TransactionTemplate readOnly;
+    /** Rooms with a presence refresh scheduled, and the sessions closing since it was. */
+    private final Map<String, Set<String>> pendingPresence = new ConcurrentHashMap<>();
+    // Off the STOMP inbound threads: a refresh reads the room and sends a view per player,
+    // and running it there held up every other CONNECT and SUBSCRIBE behind it.
+    private final ScheduledExecutorService presenceRefresher =
+        Executors.newScheduledThreadPool(2, Thread.ofPlatform().name("presence-", 1).daemon().factory());
 
     RoomBroadcaster(RoomRepository rooms, Presence presence, SimpMessagingTemplate messaging, PlatformTransactionManager transactions) {
         this.rooms = rooms;
@@ -41,7 +67,7 @@ class RoomBroadcaster {
      * nobody sees a move that rolled back and no second connection is needed.
      */
     void afterCommit(Room room) {
-        List<Delivery> deliveries = viewsFor(room, null);
+        List<Delivery> deliveries = viewsFor(room, Set.of());
         TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
             @Override
             public void afterCommit() {
@@ -53,17 +79,44 @@ class RoomBroadcaster {
     /** A new subscriber gets their view, and everyone else sees them come online. */
     @EventListener
     void onSubscribe(SessionSubscribeEvent event) {
-        if (event.getUser() instanceof PlayerPrincipal player) refresh(player.roomCode(), null);
+        if (event.getUser() instanceof PlayerPrincipal player) presenceChanged(player.roomCode(), null);
     }
 
     @EventListener
     void onDisconnect(SessionDisconnectEvent event) {
-        if (event.getUser() instanceof PlayerPrincipal player) refresh(player.roomCode(), event.getSessionId());
+        if (event.getUser() instanceof PlayerPrincipal player) presenceChanged(player.roomCode(), event.getSessionId());
     }
 
-    private void refresh(String code, String closingSessionId) {
+    @PreDestroy
+    void stop() {
+        presenceRefresher.shutdownNow();
+    }
+
+    private void presenceChanged(String code, String closingSessionId) {
+        // compute and remove lock the room's entry, so a change lands in the batch
+        // being flushed or schedules the next one; it is never dropped.
+        pendingPresence.compute(code, (room, closing) -> {
+            if (closing == null) {
+                closing = new HashSet<>();
+                presenceRefresher.schedule(() -> flushPresence(room), PRESENCE_BATCH.toMillis(), TimeUnit.MILLISECONDS);
+            }
+            if (closingSessionId != null) closing.add(closingSessionId);
+            return closing;
+        });
+    }
+
+    private void flushPresence(String code) {
+        Set<String> closing = pendingPresence.remove(code);
+        try {
+            refresh(code, closing == null ? Set.of() : closing);
+        } catch (RuntimeException e) {
+            log.warn("Presence refresh failed for room {}", code, e);
+        }
+    }
+
+    private void refresh(String code, Set<String> closingSessionIds) {
         List<Delivery> deliveries = readOnly.execute(status ->
-            rooms.findById(code).map(room -> viewsFor(room, closingSessionId)).orElse(List.of()));
+            rooms.findById(code).map(room -> viewsFor(room, closingSessionIds)).orElse(List.of()));
         send(deliveries);
     }
 
@@ -72,10 +125,10 @@ class RoomBroadcaster {
      * another instance may hold a session the shared user registry hasn't
      * reported yet. Messages for players with no session anywhere are dropped.
      */
-    private List<Delivery> viewsFor(Room room, String closingSessionId) {
+    private List<Delivery> viewsFor(Room room, Set<String> closingSessionIds) {
         return room.getPlayers().stream()
             .map(Player::getId)
-            .map(id -> new Delivery(id, RoomViews.viewFor(room, id, other -> presence.isOnline(other, closingSessionId))))
+            .map(id -> new Delivery(id, RoomViews.viewFor(room, id, other -> presence.isOnline(other, closingSessionIds))))
             .toList();
     }
 

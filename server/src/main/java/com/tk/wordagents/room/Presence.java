@@ -1,5 +1,6 @@
 package com.tk.wordagents.room;
 
+import java.util.Set;
 import org.springframework.messaging.simp.user.SimpUser;
 import org.springframework.messaging.simp.user.SimpUserRegistry;
 import org.springframework.stereotype.Component;
@@ -18,12 +19,12 @@ class Presence {
     }
 
     boolean isOnline(String playerId) {
-        return isOnline(playerId, null);
+        return isOnline(playerId, Set.of());
     }
 
-    /** As {@link #isOnline(String)}, ignoring a session that is in the middle of closing. */
-    boolean isOnline(String playerId, String closingSessionId) {
+    /** As {@link #isOnline(String)}, ignoring sessions that are in the middle of closing. */
+    boolean isOnline(String playerId, Set<String> closingSessionIds) {
         SimpUser user = users.getUser(playerId);
-        return user != null && user.getSessions().stream().anyMatch(session -> !session.getId().equals(closingSessionId));
+        return user != null && user.getSessions().stream().anyMatch(session -> !closingSessionIds.contains(session.getId()));
     }
 }
