@@ -50,7 +50,7 @@ logback and process metrics.
 
 ## Alerts
 
-`alerts.yml` defines: API down, 5xx rate above 5%, more than 5 errors logged in
+`prometheus/alerts.yml` defines: API down, 5xx rate above 5%, more than 5 errors logged in
 10 minutes, p95 above 500 ms, p99 above 1 s, CPU above 85%, heap above 90%,
 requests waiting for a DB connection, and disk above 85%. The latency and
 error-rate alerts only fire when there's real traffic (more than one request

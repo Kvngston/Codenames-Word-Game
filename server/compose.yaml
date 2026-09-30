@@ -34,8 +34,7 @@ services:
     ports:
       - "9090:9090"
     volumes:
-      - ./deploy/monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
-      - ./deploy/monitoring/alerts.yml:/etc/prometheus/alerts.yml:ro
+      - ./deploy/monitoring/prometheus:/etc/prometheus:ro
 
   grafana:
     image: grafana/grafana-oss:12.1.1

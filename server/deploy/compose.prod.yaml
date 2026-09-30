@@ -15,7 +15,9 @@ services:
     environment:
       API_DOMAIN: ${API_DOMAIN:?set API_DOMAIN in .env}
     volumes:
-      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      # Directories, not single files: git replaces files on checkout, and a
+      # single-file mount would keep serving the old copy until a restart.
+      - ./caddy:/etc/caddy:ro
       - caddy-data:/data
       - caddy-config:/config
     depends_on:
@@ -90,8 +92,7 @@ services:
       - --storage.tsdb.retention.time=30d
       - --storage.tsdb.retention.size=5GB
     volumes:
-      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
-      - ./monitoring/alerts.yml:/etc/prometheus/alerts.yml:ro
+      - ./monitoring/prometheus:/etc/prometheus:ro
       - prometheus-data:/prometheus
 
   grafana:
