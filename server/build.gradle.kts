@@ -25,6 +25,9 @@ dependencies {
     implementation("org.springframework.boot:spring-boot-starter-websocket")
     // TCP client for the STOMP broker relay to RabbitMQ.
     implementation("org.springframework.boot:spring-boot-starter-reactor-netty")
+    // Metrics on a separate management port, scraped by Prometheus (see deploy/monitoring).
+    implementation("org.springframework.boot:spring-boot-starter-actuator")
+    runtimeOnly("io.micrometer:micrometer-registry-prometheus")
     runtimeOnly("com.mysql:mysql-connector-j")
 
     testImplementation("org.springframework.boot:spring-boot-starter-test")

@@ -119,6 +119,7 @@ pnpm run typecheck
 
 - **API:** one Oracle Cloud Always Free VM runs `server/deploy/compose.prod.yaml` (Caddy + API + MySQL + RabbitMQ). Setup steps are in [server/deploy/README.md](server/deploy/README.md).
 - **Frontend:** Vercel, built from `artifacts/word-agents` (see `vercel.json`). Vercel's own Git deployments are disabled; CI deploys instead.
+- **Monitoring:** Prometheus and Grafana run on the same VM. Grafana at `/grafana` on the API domain shows load, errors, p95/p99 latency, active rooms and ongoing games; see [server/deploy/monitoring/README.md](server/deploy/monitoring/README.md).
 - **CI/CD:** pull requests run the tests. Each merge to `main` is tested, tagged as the next version and deployed to the VM and Vercel. The version bump is a patch by default; put `#minor` or `#major` in a commit message to bump further.
 
 ## How it works

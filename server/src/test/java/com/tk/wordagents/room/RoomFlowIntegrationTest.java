@@ -23,6 +23,8 @@ import java.util.stream.StreamSupport;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.web.server.LocalManagementPort;
 import org.springframework.boot.test.web.server.LocalServerPort;
 import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
 import org.springframework.messaging.converter.JacksonJsonMessageConverter;
@@ -71,6 +73,12 @@ class RoomFlowIntegrationTest {
 
     @LocalServerPort
     int port;
+
+    @LocalManagementPort
+    int managementPort;
+
+    @Autowired
+    GameMetrics gameMetrics;
 
     record Response(int status, JsonNode body) {}
 
@@ -384,5 +392,36 @@ class RoomFlowIntegrationTest {
 
         // Other clients, and other kinds of request, are unaffected.
         assertThat(call("POST", "/packs", "{\"name\":\"Mine\",\"words\":[" + words + "]}", null).status()).isEqualTo(201);
+    }
+
+    @Test
+    void metricsAreOnlyServedOnTheManagementPort() throws Exception {
+        Seat redSpy = create("Ada");
+        Seat redOp = join(redSpy.code(), "Ben");
+        Seat blueSpy = join(redSpy.code(), "Cy");
+        Seat blueOp = join(redSpy.code(), "Di");
+        act(redSpy, "{\"type\":\"take-seat\",\"team\":\"red\",\"seat\":\"spymaster\"}");
+        act(redOp, "{\"type\":\"take-seat\",\"team\":\"red\",\"seat\":\"operative\"}");
+        act(blueSpy, "{\"type\":\"take-seat\",\"team\":\"blue\",\"seat\":\"spymaster\"}");
+        act(blueOp, "{\"type\":\"take-seat\",\"team\":\"blue\",\"seat\":\"operative\"}");
+        assertThat(act(redSpy, "{\"type\":\"start\"}").status()).isEqualTo(200);
+        assertThat(act(redOp, "{\"type\":\"end-turn\"}").status()).isEqualTo(409);
+        gameMetrics.refresh();
+
+        HttpResponse<String> scrape = http.send(
+            HttpRequest.newBuilder(URI.create("http://localhost:" + managementPort + "/actuator/prometheus")).build(),
+            HttpResponse.BodyHandlers.ofString());
+        assertThat(scrape.statusCode()).isEqualTo(200);
+        assertThat(scrape.body())
+            .containsPattern("wordagents_rooms\\{[^}]*phase=\"clue\"[^}]*scope=\"active\"[^}]*} [1-9]")
+            .containsPattern("wordagents_rooms_opened_total\\{[^}]*} [1-9]")
+            .containsPattern("wordagents_games_started_total\\{[^}]*} [1-9]")
+            .contains("wordagents_game_actions_total{action=\"end-turn\",application=\"word-agents\",outcome=\"rejected\"}")
+            .contains("http_server_requests_seconds_bucket{");
+
+        HttpResponse<String> publicPort = http.send(
+            HttpRequest.newBuilder(URI.create("http://localhost:" + port + "/actuator/prometheus")).build(),
+            HttpResponse.BodyHandlers.ofString());
+        assertThat(publicPort.statusCode()).isEqualTo(404);
     }
 }

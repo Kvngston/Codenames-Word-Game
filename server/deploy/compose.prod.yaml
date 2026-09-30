@@ -1,5 +1,6 @@
-# Production stack for a single VM: Caddy (HTTPS) -> Spring Boot, with MySQL and
-# RabbitMQ on the private Compose network only. Run from this directory:
+# Production stack for a single VM: Caddy (HTTPS) -> Spring Boot, with MySQL,
+# RabbitMQ and monitoring (Prometheus, Grafana at /grafana) on the private
+# Compose network only. Run from this directory:
 #   docker compose -f compose.prod.yaml up -d --build
 name: word-agents
 
@@ -19,6 +20,7 @@ services:
       - caddy-config:/config
     depends_on:
       - app
+      - grafana
 
   app:
     build: ..
@@ -76,12 +78,60 @@ services:
       timeout: 10s
       retries: 30
 
+  # ---- Monitoring (see monitoring/README.md) ----
+
+  prometheus:
+    image: prom/prometheus:v3.5.0
+    restart: unless-stopped
+    mem_limit: 512m
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=30d
+      - --storage.tsdb.retention.size=5GB
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./monitoring/alerts.yml:/etc/prometheus/alerts.yml:ro
+      - prometheus-data:/prometheus
+
+  grafana:
+    image: grafana/grafana-oss:12.1.1
+    restart: unless-stopped
+    mem_limit: 512m
+    environment:
+      GF_SERVER_ROOT_URL: https://${API_DOMAIN}/grafana/
+      GF_SERVER_SERVE_FROM_SUB_PATH: "true"
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:?set GRAFANA_ADMIN_PASSWORD in .env}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_AUTH_ANONYMOUS_ENABLED: "false"
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+      GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH: /var/lib/grafana/dashboards/word-agents.json
+    volumes:
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./monitoring/grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafana-data:/var/lib/grafana
+    depends_on:
+      - prometheus
+
+  # Host CPU, load, memory and disk.
+  node-exporter:
+    image: prom/node-exporter:v1.9.1
+    restart: unless-stopped
+    command:
+      - --path.rootfs=/host
+    pid: host
+    volumes:
+      - /:/host:ro,rslave
+
 configs:
   rabbit-plugins:
-    content: "[rabbitmq_stomp]."
+    content: "[rabbitmq_stomp,rabbitmq_prometheus]."
 
 volumes:
   caddy-data:
   caddy-config:
   mysql-data:
   rabbitmq-data:
+  prometheus-data:
+  grafana-data:

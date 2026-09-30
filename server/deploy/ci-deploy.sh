@@ -30,6 +30,8 @@ main() {
   cd "$deploy_dir"
   printf 'APP_VERSION=%s\n' "$tag" > release.env
   docker compose -f compose.prod.yaml up -d --build --remove-orphans
+  # Prometheus doesn't watch its config files; Grafana rescans dashboards itself.
+  docker compose -f compose.prod.yaml kill -s HUP prometheus > /dev/null
   docker image prune -f > /dev/null
 
   echo "==> $tag is deployed"

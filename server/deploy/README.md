@@ -112,6 +112,14 @@ gunzip -c restore.sql.gz | docker compose -f compose.prod.yaml exec -T mysql \
   sh -c 'exec mysql -uroot -p"$MYSQL_ROOT_PASSWORD" wordagents'
 ```
 
+## 7. Monitoring
+
+Prometheus and Grafana start with the rest of the stack. Before the first
+deploy that includes them, add `GRAFANA_ADMIN_PASSWORD` to `.env` (generate it
+with `openssl rand -base64 24`); Compose refuses to start without it. Then open
+`https://<API_DOMAIN>/grafana/` and sign in as `admin`. The dashboard, metrics
+and alerts are described in [monitoring/README.md](monitoring/README.md).
+
 ## Deploying a new version
 
 Merging to `main` releases and deploys automatically; see the next section.
@@ -216,5 +224,6 @@ curl https://codenameapi.tkcodes.xyz/api/healthz    # {"status":"ok","version":"
 docker compose -f compose.prod.yaml ps              # status
 docker compose -f compose.prod.yaml logs -f app     # server logs
 docker compose -f compose.prod.yaml logs caddy      # certificate problems show up here
+docker compose -f compose.prod.yaml exec prometheus wget -qO- app:8081/actuator/prometheus | head   # raw metrics
 docker compose -f compose.prod.yaml restart app
 ```

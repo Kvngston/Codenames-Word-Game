@@ -1,6 +1,7 @@
 package com.tk.wordagents.room;
 
 import com.tk.wordagents.game.GameAction;
+import com.tk.wordagents.game.GameException;
 import com.tk.wordagents.game.GameRules;
 import com.tk.wordagents.game.Phase;
 import com.tk.wordagents.game.Player;
@@ -28,13 +29,16 @@ public class RoomService {
     private final Presence presence;
     private final RoomBroadcaster broadcaster;
     private final PackService packs;
+    private final GameMetrics metrics;
 
-    RoomService(RoomRepository rooms, PlayerRepository players, Presence presence, RoomBroadcaster broadcaster, PackService packs) {
+    RoomService(RoomRepository rooms, PlayerRepository players, Presence presence, RoomBroadcaster broadcaster, PackService packs,
+                GameMetrics metrics) {
         this.rooms = rooms;
         this.players = players;
         this.presence = presence;
         this.broadcaster = broadcaster;
         this.packs = packs;
+        this.metrics = metrics;
     }
 
     @Transactional
@@ -49,6 +53,7 @@ public class RoomService {
         Player host = addPlayer(room, hostName, token);
         room.setHostPlayerId(host.getId());
         rooms.save(room);
+        metrics.roomCreated();
         return new SeatGrant(code, host.getId(), token);
     }
 
@@ -59,6 +64,7 @@ public class RoomService {
         String token = SeatTokens.generate();
         Player player = addPlayer(room, name, token);
         changed(room);
+        metrics.playerJoined();
         return new SeatGrant(room.getCode(), player.getId(), token);
     }
 
@@ -72,7 +78,14 @@ public class RoomService {
     public RoomView act(String code, String token, GameAction action) {
         Room room = lock(code);
         Player player = authenticate(room, token);
-        GameRules.apply(room, player.getId(), action, packs);
+        Phase before = room.getPhase();
+        try {
+            GameRules.apply(room, player.getId(), action, packs);
+        } catch (GameException e) {
+            metrics.action(action, before, before, "rejected");
+            throw e;
+        }
+        metrics.action(action, before, room.getPhase(), "ok");
         changed(room);
         return RoomViews.viewFor(room, player.getId(), presence::isOnline);
     }

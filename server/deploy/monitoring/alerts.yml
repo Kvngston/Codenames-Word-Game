@@ -1,0 +1,76 @@
+# Shown under Alerting in Grafana and on Prometheus's /alerts page.
+groups:
+  - name: word-agents
+    rules:
+      - alert: ApiDown
+        expr: up{job="word-agents"} == 0
+        for: 2m
+        labels: { severity: critical }
+        annotations:
+          summary: The API has not answered a metrics scrape for 2 minutes.
+
+      - alert: HighServerErrorRate
+        expr: |
+          sum(rate(http_server_requests_seconds_count{job="word-agents", status=~"5.."}[5m]))
+            / sum(rate(http_server_requests_seconds_count{job="word-agents"}[5m])) > 0.05
+          and sum(rate(http_server_requests_seconds_count{job="word-agents"}[5m])) > 0.1
+        for: 5m
+        labels: { severity: critical }
+        annotations:
+          summary: "More than 5% of API requests are failing with 5xx ({{ $value | humanizePercentage }})."
+
+      - alert: ErrorsLogged
+        expr: sum(increase(logback_events_total{job="word-agents", level="error"}[10m])) > 5
+        labels: { severity: warning }
+        annotations:
+          summary: "{{ $value | humanize }} errors logged in the last 10 minutes."
+
+      - alert: SlowP95
+        expr: |
+          histogram_quantile(0.95, sum by (le) (rate(http_server_requests_seconds_bucket{job="word-agents", uri!~"/api/healthz|UNKNOWN"}[5m]))) > 0.5
+          and sum(rate(http_server_requests_seconds_count{job="word-agents"}[5m])) > 0.1
+        for: 10m
+        labels: { severity: warning }
+        annotations:
+          summary: "API p95 latency is {{ $value | humanizeDuration }} (target 500ms)."
+
+      - alert: SlowP99
+        expr: |
+          histogram_quantile(0.99, sum by (le) (rate(http_server_requests_seconds_bucket{job="word-agents", uri!~"/api/healthz|UNKNOWN"}[5m]))) > 1
+          and sum(rate(http_server_requests_seconds_count{job="word-agents"}[5m])) > 0.1
+        for: 10m
+        labels: { severity: warning }
+        annotations:
+          summary: "API p99 latency is {{ $value | humanizeDuration }} (target 1s)."
+
+      - alert: HighCpu
+        expr: process_cpu_usage{job="word-agents"} > 0.85
+        for: 10m
+        labels: { severity: warning }
+        annotations:
+          summary: "The API has used {{ $value | humanizePercentage }} CPU for 10 minutes."
+
+      - alert: HeapNearlyFull
+        expr: |
+          sum(jvm_memory_used_bytes{job="word-agents", area="heap"})
+            / sum(jvm_memory_max_bytes{job="word-agents", area="heap"} > 0) > 0.9
+        for: 10m
+        labels: { severity: warning }
+        annotations:
+          summary: "JVM heap is {{ $value | humanizePercentage }} full."
+
+      - alert: DatabasePoolExhausted
+        expr: max(hikaricp_connections_pending{job="word-agents"}) > 0
+        for: 5m
+        labels: { severity: warning }
+        annotations:
+          summary: Requests have been waiting for a database connection for 5 minutes.
+
+      - alert: DiskNearlyFull
+        expr: |
+          1 - node_filesystem_avail_bytes{job="node", mountpoint="/", fstype!="rootfs"}
+            / node_filesystem_size_bytes{job="node", mountpoint="/", fstype!="rootfs"} > 0.85
+        for: 15m
+        labels: { severity: warning }
+        annotations:
+          summary: "The VM's disk is {{ $value | humanizePercentage }} full."
