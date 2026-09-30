@@ -1,5 +1,5 @@
 import { useEffect, useState, type FormEvent } from 'react';
-import { ArrowLeft, BookmarkPlus, Check, Copy, CopyPlus, Layers, Library, Link2, Pencil, Plus, Trash2, X } from 'lucide-react';
+import { ArrowLeft, BookmarkPlus, Copy, CopyPlus, Library, Link2, Pencil, Plus, Trash2, X } from 'lucide-react';
 import { BOARD_SIZE, MAX_WORD_LENGTH, parseWords, type Action, type RoomView, type SavedPack } from '@workspace/game-core';
 import {
   createPack,
@@ -15,7 +15,7 @@ import {
   type MyPack,
 } from './pack-client';
 
-type Act = (action: Action) => Promise<boolean>;
+type Act = (action: Action) => Promise<RoomView | null>;
 type Toast = (message: string) => void;
 
 const MAX_CUSTOM_WORDS = 200;
@@ -48,12 +48,12 @@ export function WordsPanel({ view, act, onToast, onManagePacks }: { view: RoomVi
 
   if (!view.you.isHost) {
     return (
-      <section className="panel setup-panel words-panel" aria-labelledby="words-title">
-        <div className="section-heading">
-          <h2 id="words-title">The word list</h2>
-          {words.poolSize > 0 && <span className="role-pill">{words.poolSize} words in the pool</span>}
+      <section className="panel form-panel words-panel" aria-labelledby="words-title">
+        <div className="panel-head">
+          <h3 className="panel-title" id="words-title">Word dossiers</h3>
+          {words.poolSize > 0 && <span className="count-chip neutral">{words.poolSize} words in the pool</span>}
         </div>
-        <p className="turn-copy" data-testid="text-word-sources">
+        <p className="muted-copy small" data-testid="text-word-sources">
           {packNames.length ? <>Dealt from <b>{packNames.join(', ')}</b></> : 'Dealt from the host’s own words'}
           {words.customCount > 0 && <>{packNames.length ? ', plus ' : ': '}<b>{words.customCount} custom {words.customCount === 1 ? 'word' : 'words'}</b> from the host</>}.
         </p>
@@ -118,46 +118,45 @@ function HostWordsPanel({ view, act, onToast, onManagePacks, names }: { view: Ro
   const chip = (id: string, name: string, detail: string, description?: string) => {
     const on = words.packs.includes(id);
     return (
-      <button key={id} type="button" className="pack-chip" aria-pressed={on} onClick={() => toggle(id)} data-testid={`button-pack-${id}`}>
-        <span className="pack-check" aria-hidden="true">{on && <Check size={12} />}</span>
-        <span className="pack-chip-text"><b>{name}</b><span>{detail}{description && <span className="pack-desc"> · {description}</span>}</span></span>
+      <button key={id} type="button" className="pack-toggle" aria-pressed={on} onClick={() => toggle(id)} data-testid={`button-pack-${id}`}>
+        <span className="pack-toggle-text"><b>{name}</b><span>{description ?? detail}{description && <span className="pack-desc"> · {detail}</span>}</span></span>
+        <span className="switch" aria-hidden="true"><span /></span>
       </button>
     );
   };
 
   return (
-    <section className="panel setup-panel words-panel" aria-labelledby="words-title">
-      <div className="section-heading">
-        <h2 id="words-title">The word list</h2>
-        {words.poolSize > 0 && <span className="role-pill" data-testid="text-pool-size">{words.poolSize} words in the pool</span>}
+    <section className="panel form-panel words-panel" aria-labelledby="words-title">
+      <div className="panel-head">
+        <h3 className="panel-title" id="words-title">Select word dossiers</h3>
+        {words.poolSize > 0 && <span className="count-chip neutral" data-testid="text-pool-size">{words.poolSize} words</span>}
       </div>
 
-      <div className="seat-label"><Layers size={13} /> Genre packs</div>
-      <div className="pack-grid">
+      <div className="pack-list-toggles">
         {catalog.map((pack) => chip(pack.id, pack.name, `${pack.size} words`, pack.description))}
       </div>
 
-      <div className="seat-label words-subhead">
-        <span><Library size={13} /> Saved packs</span>
+      <div className="field-label-row">
+        <span className="mono-label"><Library size={12} /> Saved dossiers</span>
         <button type="button" className="text-button" onClick={onManagePacks} data-testid="button-manage-packs">Manage packs</button>
       </div>
       {mine.length + otherPacks.length > 0 && (
-        <div className="pack-grid">
+        <div className="pack-list-toggles">
           {mine.map((pack) => chip(pack.code, pack.name, `${pack.size} words · ${pack.code}${pack.editToken ? ' · yours' : ''}`))}
           {otherPacks.map((id) => chip(id, names[id] ?? id, id))}
         </div>
       )}
-      <form className="inline-form" onSubmit={addByCode}>
+      <form className="input-with-action" onSubmit={addByCode}>
         <label className="sr-only" htmlFor="pack-code">Pack code</label>
-        <input id="pack-code" value={code} onChange={(event) => setCode(event.target.value.toUpperCase())} maxLength={8} placeholder="Pack code from a friend" autoComplete="off" data-testid="input-pack-code" />
-        <button type="submit" className="secondary-button" disabled={busy || !code.trim()} data-testid="button-add-pack-code"><Plus size={14} /> Add</button>
+        <input id="pack-code" className="text-input mono" value={code} onChange={(event) => setCode(event.target.value.toUpperCase())} maxLength={8} placeholder="Pack code from a friend" autoComplete="off" data-testid="input-pack-code" />
+        <button type="submit" className="chip-button" disabled={busy || !code.trim()} data-testid="button-add-pack-code"><Plus size={13} /> Add</button>
       </form>
 
-      <div className="seat-label"><Pencil size={13} /> Your own words</div>
+      <div className="field-label-row"><span className="mono-label"><Pencil size={12} /> Or add custom mission words</span></div>
       <label className="sr-only" htmlFor="custom-words">Custom words, one per line or separated by commas</label>
       <textarea
         id="custom-words"
-        className="words-textarea"
+        className="text-input words-textarea"
         value={draft}
         onChange={(event) => setDraft(event.target.value)}
         placeholder={'One per line, or separated by commas.\nThese always make the board; packs fill the rest.'}
@@ -165,28 +164,28 @@ function HostWordsPanel({ view, act, onToast, onManagePacks, names }: { view: Ro
         data-testid="input-custom-words"
       />
       <div className="words-foot">
-        <span className={`turn-copy words-count${draftProblem ? ' is-problem' : ''}`} data-testid="text-custom-count">
+        <span className={`muted-copy small words-count${draftProblem ? ' is-problem' : ''}`} data-testid="text-custom-count">
           {draftProblem ?? (draftWords.length
             ? `${draftWords.length} ${draftWords.length === 1 ? 'word' : 'words'}${draftWords.length >= BOARD_SIZE ? '. They fill the whole board.' : `. Packs fill the other ${BOARD_SIZE - draftWords.length}.`}`
             : 'Office jokes, family names, anything your table will get.')}
         </span>
         <div className="action-row">
           {draftWords.length >= BOARD_SIZE && packName === null && (
-            <button type="button" className="secondary-button" onClick={() => setPackName('')} data-testid="button-save-as-pack"><BookmarkPlus size={14} /> Save as pack</button>
+            <button type="button" className="ghost-button" onClick={() => setPackName('')} data-testid="button-save-as-pack"><BookmarkPlus size={14} /> Save as pack</button>
           )}
           {dirty && (
-            <button type="button" className="primary-button" disabled={Boolean(draftProblem)} onClick={() => setWords(words.packs, draftWords)} data-testid="button-apply-words">
+            <button type="button" className="solid-button" disabled={Boolean(draftProblem)} onClick={() => setWords(words.packs, draftWords)} data-testid="button-apply-words">
               {draftWords.length ? 'Use these words' : 'Clear my words'}
             </button>
           )}
         </div>
       </div>
       {packName !== null && (
-        <form className="inline-form" onSubmit={saveAsPack}>
+        <form className="input-with-action" onSubmit={saveAsPack}>
           <label className="sr-only" htmlFor="new-pack-name">Pack name</label>
-          <input id="new-pack-name" value={packName} onChange={(event) => setPackName(event.target.value)} maxLength={40} placeholder="Name this pack" autoFocus data-testid="input-new-pack-name" />
-          <button type="submit" className="secondary-button" disabled={busy || !packName.trim()} data-testid="button-confirm-save-pack">Save</button>
-          <button type="button" className="icon-button" aria-label="Cancel" onClick={() => setPackName(null)}><X size={15} /></button>
+          <input id="new-pack-name" className="text-input" value={packName} onChange={(event) => setPackName(event.target.value)} maxLength={40} placeholder="Name this pack" autoFocus data-testid="input-new-pack-name" />
+          <button type="submit" className="chip-button" disabled={busy || !packName.trim()} data-testid="button-confirm-save-pack">Save</button>
+          <button type="button" className="chip-button" aria-label="Cancel" onClick={() => setPackName(null)}><X size={13} /></button>
         </form>
       )}
     </section>
@@ -267,7 +266,7 @@ export function PacksDialog({ initialCode, onClose, onToast }: { initialCode: st
   }
 
   const back = (
-    <button type="button" className="quiet-button" onClick={() => setMode({ kind: 'list' })} data-testid="button-packs-back"><ArrowLeft size={14} /> All packs</button>
+    <button type="button" className="ghost-button" onClick={() => setMode({ kind: 'list' })} data-testid="button-packs-back"><ArrowLeft size={14} /> All packs</button>
   );
 
   let body;
@@ -277,19 +276,19 @@ export function PacksDialog({ initialCode, onClose, onToast }: { initialCode: st
     body = (
       <form onSubmit={save}>
         <div className="field">
-          <label htmlFor="pack-name">Pack name</label>
-          <input id="pack-name" value={mode.name} onChange={(event) => setMode({ ...mode, name: event.target.value })} maxLength={40} placeholder="Office in-jokes" autoFocus data-testid="input-pack-name" />
+          <label className="mono-label" htmlFor="pack-name">Pack name</label>
+          <input id="pack-name" className="text-input" value={mode.name} onChange={(event) => setMode({ ...mode, name: event.target.value })} maxLength={40} placeholder="Office in-jokes" autoFocus data-testid="input-pack-name" />
         </div>
         <div className="field">
-          <label htmlFor="pack-words">Words</label>
-          <textarea id="pack-words" className="words-textarea tall" value={mode.words} onChange={(event) => setMode({ ...mode, words: event.target.value })} placeholder="One per line, or separated by commas." rows={9} data-testid="input-pack-words" />
+          <label className="mono-label" htmlFor="pack-words">Words</label>
+          <textarea id="pack-words" className="text-input words-textarea tall" value={mode.words} onChange={(event) => setMode({ ...mode, words: event.target.value })} placeholder="One per line, or separated by commas." rows={9} data-testid="input-pack-words" />
         </div>
-        <p className={`turn-copy words-count${problem && words.length ? ' is-problem' : ''}`}>
+        <p className={`muted-copy small words-count${problem && words.length ? ' is-problem' : ''}`}>
           {problem && words.length ? problem : `${words.length} ${words.length === 1 ? 'word' : 'words'}. Packs need ${BOARD_SIZE} to ${MAX_PACK_WORDS}.`}
         </p>
         <div className="dialog-actions">
           {back}
-          <button type="submit" className="primary-button" disabled={busy || Boolean(problem) || !mode.name.trim()} data-testid="button-save-pack">
+          <button type="submit" className="gold-button compact" disabled={busy || Boolean(problem) || !mode.name.trim()} data-testid="button-save-pack">
             {mode.pack ? 'Save changes' : 'Create pack'}
           </button>
         </div>
@@ -302,7 +301,7 @@ export function PacksDialog({ initialCode, onClose, onToast }: { initialCode: st
       <>
         <div className="pack-preview-head">
           <b>{pack.name}</b>
-          <span className="role-pill">{pack.code} · {pack.words.length} words</span>
+          <span className="count-chip neutral">{pack.code} · {pack.words.length} words</span>
         </div>
         <div className="word-cloud" data-testid="list-pack-preview">
           {pack.words.slice(0, 60).map((word) => <span key={word}>{word}</span>)}
@@ -312,7 +311,7 @@ export function PacksDialog({ initialCode, onClose, onToast }: { initialCode: st
         <div className="dialog-actions">
           {back}
           {!saved && (
-            <button type="button" className="primary-button" onClick={() => { rememberPack(pack); onToast(`“${pack.name}” is in your packs.`); setMode({ kind: 'list' }); }} data-testid="button-save-shared-pack">
+            <button type="button" className="gold-button compact" onClick={() => { rememberPack(pack); onToast(`“${pack.name}” is in your packs.`); setMode({ kind: 'list' }); }} data-testid="button-save-shared-pack">
               <BookmarkPlus size={14} /> Save to my packs
             </button>
           )}
@@ -354,15 +353,15 @@ export function PacksDialog({ initialCode, onClose, onToast }: { initialCode: st
             ))}
           </div>
         ) : (
-          <div className="empty-history">No packs yet. Make one, or add a friend’s by its code.</div>
+          <p className="muted-copy small">No packs yet. Make one, or add a friend’s by its code.</p>
         )}
-        <form className="inline-form" onSubmit={(event) => { event.preventDefault(); if (code.trim()) void open(code); }}>
+        <form className="input-with-action" onSubmit={(event) => { event.preventDefault(); if (code.trim()) void open(code); }}>
           <label className="sr-only" htmlFor="shared-pack-code">Pack code</label>
-          <input id="shared-pack-code" value={code} onChange={(event) => setCode(event.target.value.toUpperCase())} maxLength={8} placeholder="Pack code from a friend" autoComplete="off" data-testid="input-shared-pack-code" />
-          <button type="submit" className="secondary-button" disabled={busy || !code.trim()}>Look up</button>
+          <input id="shared-pack-code" className="text-input mono" value={code} onChange={(event) => setCode(event.target.value.toUpperCase())} maxLength={8} placeholder="Pack code from a friend" autoComplete="off" data-testid="input-shared-pack-code" />
+          <button type="submit" className="chip-button" disabled={busy || !code.trim()}>Look up</button>
         </form>
         <div className="dialog-actions">
-          <button type="button" className="primary-button" onClick={() => setMode({ kind: 'edit', pack: null, name: '', words: '' })} data-testid="button-new-pack"><Plus size={14} /> New pack</button>
+          <button type="button" className="gold-button compact" onClick={() => setMode({ kind: 'edit', pack: null, name: '', words: '' })} data-testid="button-new-pack"><Plus size={14} /> New pack</button>
         </div>
       </>
     );
@@ -375,7 +374,7 @@ export function PacksDialog({ initialCode, onClose, onToast }: { initialCode: st
       <section className="dialog" role="dialog" aria-modal="true" aria-labelledby="packs-title">
         <div className="dialog-head">
           <div>
-            <div className="eyebrow">Archive</div>
+            <span className="mono-label gold">Archive</span>
             <h2 id="packs-title">{mode.kind === 'edit' ? (mode.pack ? 'Edit pack' : 'New pack') : mode.kind === 'preview' ? 'Shared pack' : 'Word packs'}</h2>
           </div>
           <button type="button" className="icon-button" aria-label="Close dialog" onClick={onClose} data-testid="button-close-packs"><X size={17} /></button>
