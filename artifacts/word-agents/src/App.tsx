@@ -1,20 +1,21 @@
-import { useEffect, useState, type CSSProperties, type FormEvent } from 'react';
+import { useEffect, useRef, useState, type CSSProperties, type FormEvent, type ReactNode } from 'react';
 import {
   ArrowRight,
   BookOpen,
   Check,
+  CircleX,
   Copy,
   Crown,
   Eye,
   EyeOff,
   Flag,
-  KeyRound,
   Library,
-  LogOut,
+  Pencil,
+  Radio,
   RotateCcw,
+  SatelliteDish,
   Shield,
-  Sparkles,
-  Users,
+  Skull,
   WifiOff,
   X,
 } from 'lucide-react';
@@ -33,7 +34,10 @@ import { createRoom, forgetSeat, joinRoom, leaveRoom, loadSeat, sendAction, useR
 import { PacksDialog, WordsPanel } from './word-packs';
 
 type ToastMessage = string | null;
-type Act = (action: Action) => Promise<boolean>;
+/** Sends an action; resolves to the updated view, or null if it was rejected. */
+type Act = (action: Action) => Promise<RoomView | null>;
+/** One line of the telemetry feed: what happened this session, newest last. */
+type LogEntry = { id: number; text: string; time: string; team: Team | null };
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, '');
 
@@ -67,7 +71,26 @@ function seatLabel(player: PlayerView, teamNames: Record<Team, string>): string 
 }
 
 function teamStyle(team: Team): CSSProperties {
-  return { '--team-color': team === 'red' ? 'var(--red)' : 'var(--blue)' } as CSSProperties;
+  return { '--team-color': `var(--${team})`, '--team-tint': `var(--${team}-tint)`, '--team-edge': `var(--${team}-edge)` } as CSSProperties;
+}
+
+function clockTime() {
+  return new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
+}
+
+function numberText(number: ClueNumber) {
+  return number === 'unlimited' ? '∞' : String(number);
+}
+
+/** Which team an event line is about, so its dot can be colored. */
+function eventTeam(text: string, teamNames: Record<Team, string>): Team | null {
+  const lower = text.toLowerCase();
+  const red = lower.indexOf(teamNames.red.toLowerCase());
+  const blue = lower.indexOf(teamNames.blue.toLowerCase());
+  if (red < 0 && blue < 0) return null;
+  if (blue < 0) return 'red';
+  if (red < 0) return 'blue';
+  return red < blue ? 'red' : 'blue';
 }
 
 function App() {
@@ -77,6 +100,8 @@ function App() {
   const [rulesOpen, setRulesOpen] = useState(false);
   const [sharedPack] = useState(packFromLocation);
   const [packsOpen, setPacksOpen] = useState(sharedPack !== null);
+  const [log, setLog] = useState<LogEntry[]>([]);
+  const logId = useRef(0);
   const { view, connection, accept } = useRoom(seat);
 
   useEffect(() => {
@@ -96,8 +121,13 @@ function App() {
   }, [toast]);
 
   useEffect(() => {
-    if (view?.lastEvent) setToast(view.lastEvent);
+    if (!view?.lastEvent) return;
+    setToast(view.lastEvent);
+    setLog((entries) => [...entries.slice(-39), { id: ++logId.current, text: view.lastEvent, time: clockTime(), team: eventTeam(view.lastEvent, view.teamNames) }]);
   }, [view?.lastEvent]);
+
+  // A fresh room or a new seat starts a fresh feed.
+  useEffect(() => setLog([]), [seat?.code]);
 
   function enterRoom(next: Seat) {
     navigate(next.code);
@@ -112,13 +142,14 @@ function App() {
   }
 
   const act: Act = async (action) => {
-    if (!seat) return false;
+    if (!seat) return null;
     try {
-      accept(await sendAction(seat, action));
-      return true;
+      const next = await sendAction(seat, action);
+      accept(next);
+      return next;
     } catch (error) {
       setToast((error as Error).message);
-      return false;
+      return null;
     }
   };
 
@@ -144,43 +175,51 @@ function App() {
   }
 
   const isHost = view?.you.isHost ?? false;
+  const canLeave = view && (view.phase === 'lobby' || !view.you.seat);
+  const currentTab = !view ? null : view.phase === 'lobby' ? 'Lobby' : view.you.seat === 'spymaster' ? 'Spymaster' : 'Operative';
 
   return (
     <div className="app-shell">
-      <div className="classification-bar" aria-hidden="true"><span>Top secret</span><span>//</span><span>Eyes only</span></div>
       <header className="topbar">
-        <div className="brand-lockup" aria-label="Word Agents">
-          <span className="brand-mark" aria-hidden="true" />
-          <span><span className="brand-name">Word Agents</span><span className="brand-tag">Covert word operations</span></span>
+        <div className="brand">
+          {canLeave ? (
+            <button type="button" className="brand-exit" aria-label="Leave room" onClick={leave} data-testid="button-leave-room"><CircleX size={24} strokeWidth={2} /></button>
+          ) : (
+            <span className="brand-exit" aria-hidden="true"><CircleX size={24} strokeWidth={2} /></span>
+          )}
+          <span className="brand-name">Word Agents</span>
+          {view && <span className="room-pill" data-testid="text-room-code">Room: {view.code}</span>}
         </div>
+        {currentTab && (
+          <nav className="view-tabs" aria-label="Current view">
+            {(['Lobby', 'Operative', 'Spymaster'] as const).map((tab) => (
+              <span key={tab} className={`view-tab${tab === currentTab ? ' active' : ''}`} aria-current={tab === currentTab ? 'page' : undefined}>{tab}</span>
+            ))}
+          </nav>
+        )}
         <div className="top-actions">
-          {view && <span className="role-pill room-pill" data-testid="text-room-code">Op {view.code}</span>}
+          {view && <span className="agent-id">Agent ID: <b>{view.you.name}</b></span>}
           {view && isHost && view.phase !== 'lobby' && (
-            <button type="button" className="quiet-button" onClick={() => act({ type: 'new-game' })} data-testid="button-new-game">
-              <RotateCcw size={14} /> New game
+            <button type="button" className="icon-button" aria-label="New game" title="New game" onClick={() => act({ type: 'new-game' })} data-testid="button-new-game">
+              <RotateCcw size={16} />
             </button>
           )}
-          {view && (view.phase === 'lobby' || !view.you.seat) && (
-            <button type="button" className="icon-button" aria-label="Leave room" onClick={leave} data-testid="button-leave-room">
-              <LogOut size={17} />
-            </button>
-          )}
-          <button type="button" className="icon-button" aria-label="Word packs" onClick={() => setPacksOpen(true)} data-testid="button-open-packs">
-            <Library size={17} />
+          <button type="button" className="icon-button" aria-label="Word packs" title="Word packs" onClick={() => setPacksOpen(true)} data-testid="button-open-packs">
+            <Library size={16} />
           </button>
-          <button type="button" className="icon-button" aria-label="Read the rules" onClick={() => setRulesOpen(true)} data-testid="button-open-rules">
-            <BookOpen size={17} />
+          <button type="button" className="icon-button" aria-label="Read the rules" title="Rules" onClick={() => setRulesOpen(true)} data-testid="button-open-rules">
+            <BookOpen size={16} />
           </button>
         </div>
       </header>
 
       {!seat && <Home initialCode={code} onSeat={enterRoom} onError={setToast} />}
       {seat && connection === 'lost' && <LostRoom onHome={abandonSeat} />}
-      {seat && connection !== 'lost' && !view && <main className="layout"><div className="panel handoff-card"><p className="handoff-copy loading-copy">Establishing secure line</p></div></main>}
+      {seat && connection !== 'lost' && !view && <main className="layout narrow"><div className="panel center-card"><p className="muted-copy loading-copy">Establishing secure line</p></div></main>}
       {seat && connection !== 'lost' && view && (
         <>
           {connection === 'reconnecting' && <ConnectionBanner connection={connection} />}
-          {view.phase === 'lobby' ? <Lobby view={view} act={act} onToast={setToast} onManagePacks={() => setPacksOpen(true)} /> : <Table view={view} act={act} />}
+          {view.phase === 'lobby' ? <Lobby view={view} act={act} onToast={setToast} onManagePacks={() => setPacksOpen(true)} /> : <Table view={view} act={act} log={log} />}
           <div className="sr-only" aria-live="polite" data-testid="status-turn-and-counts">
             {view.teamNames[view.activeTeam]} to act. {view.teamNames.red}: {view.remaining.red} remaining. {view.teamNames.blue}: {view.remaining.blue} remaining.
           </div>
@@ -236,34 +275,34 @@ function Home({ initialCode, onSeat, onError }: { initialCode: string | null; on
   }
 
   return (
-    <main className="layout">
-      <section className="setup-wrap" aria-labelledby="welcome-title">
-        <div className="setup-hero">
-          <div>
-            <div className="eyebrow">Classified briefing · Eyes only</div>
-            <h1 className="hero-title" id="welcome-title">Crack the code.<br /><em>Find your agents.</em></h1>
-            <p className="hero-copy">
-              One clue. Twenty-five cover names. Two rival networks trying to think on the same wavelength.
-              Every agent plays on their own phone, and only spymasters ever receive the <span className="redact" tabIndex={0}>secret</span> map.
-            </p>
-          </div>
-          <div className="seal" aria-hidden="true"><div><b>25</b>targets tracked</div></div>
-        </div>
+    <main className="layout home-layout">
+      <section className="home-intro" aria-labelledby="welcome-title">
+        <span className="mono-label gold">Classified briefing · Eyes only</span>
+        <h1 className="home-title" id="welcome-title">Crack the code.<br /><span>Find your agents.</span></h1>
+        <p className="muted-copy">
+          One clue. Twenty-five cover names. Two rival squads trying to think on the same wavelength.
+          Every agent plays on their own phone, and only spymasters ever receive the secret map.
+        </p>
+        <ul className="home-points">
+          <li><b>Need to know</b><span>Each spymaster sees the map on their own screen. Nobody else’s device receives it.</span></li>
+          <li><b>Debrief together</b><span>Operatives decode the clue, argue it out, then tap a word on their phone.</span></li>
+          <li><b>Avoid the assassin</b><span>Contact your whole squad first. One wrong word ends the mission.</span></li>
+        </ul>
+      </section>
 
-        <section className="panel setup-panel" aria-label="Join an operation">
-          <div className="section-heading">
-            <h2>{initialCode ? `Join operation ${initialCode}` : 'Report for duty'}</h2>
-            <p>Your cover is remembered on this device.</p>
-          </div>
+      <section className="home-side">
+        <h2 className="section-title">{initialCode ? `Join operation ${initialCode}` : 'Report for duty'}</h2>
+        <div className="panel form-panel" aria-label="Join an operation">
           <div className="field">
-            <label htmlFor="player-name">Codename</label>
-            <input id="player-name" value={name} onChange={(event) => setName(event.target.value)} maxLength={24} autoComplete="nickname" data-testid="input-player-name" />
+            <label className="mono-label" htmlFor="player-name">Step 1: Codename</label>
+            <input id="player-name" className="text-input" value={name} onChange={(event) => setName(event.target.value)} maxLength={24} autoComplete="nickname" placeholder="e.g. SPY_FOX_99" data-testid="input-player-name" />
           </div>
-          <form className="join-row" onSubmit={submitJoin}>
-            <div className="field">
-              <label htmlFor="room-code">Access code</label>
+          <form className="field" onSubmit={submitJoin}>
+            <label className="mono-label" htmlFor="room-code">Step 2: Access code</label>
+            <div className="input-with-action">
               <input
                 id="room-code"
+                className="text-input mono"
                 value={joinCode}
                 onChange={(event) => setJoinCode(event.target.value.toUpperCase())}
                 maxLength={8}
@@ -271,31 +310,31 @@ function Home({ initialCode, onSeat, onError }: { initialCode: string | null; on
                 placeholder="ABCDE"
                 data-testid="input-room-code"
               />
+              <button type="submit" className="chip-button" disabled={busy} data-testid="button-join-room">Join</button>
             </div>
-            <button type="submit" className="secondary-button" disabled={busy} data-testid="button-join-room">
-              Join op <ArrowRight size={15} />
-            </button>
           </form>
-          {!initialCode && (
-            <div className="setup-foot">
-              <div className="privacy-note">
-                <Shield size={17} aria-hidden="true" />
-                <span>Running the mission? Open an operation, then send the access code or link to every agent in your crew.</span>
-              </div>
-              <button type="button" className="primary-button" disabled={busy} onClick={() => run(() => createRoom(name.trim()))} data-testid="button-create-room">
-                Open an operation <ArrowRight size={15} />
-              </button>
-            </div>
-          )}
-        </section>
-
-        <div className="setup-details">
-          <div className="detail-item"><KeyRound size={17} /><div><b>Need to know</b><span>Each spymaster sees the map on their own screen. Nobody else’s device ever receives it.</span></div></div>
-          <div className="detail-item"><Users size={17} /><div><b>Debrief together</b><span>Operatives decode the clue, argue it out, then tap a word on their phone.</span></div></div>
-          <div className="detail-item"><Sparkles size={17} /><div><b>Extract your agents</b><span>Make contact with your whole team first. Avoid the assassin at all costs.</span></div></div>
+          <p className="muted-copy small">Your cover is remembered on this device.</p>
         </div>
+        {!initialCode && (
+          <div className="panel launch-panel">
+            <p className="muted-copy small center"><Shield size={13} aria-hidden="true" /> Running the mission? Open a room and share the code with your crew.</p>
+            <button type="button" className="gold-button" disabled={busy} onClick={() => run(() => createRoom(name.trim()))} data-testid="button-create-room">
+              Open an operation
+            </button>
+          </div>
+        )}
       </section>
     </main>
+  );
+}
+
+function Avatar({ player }: { player: PlayerView }) {
+  const initials = player.name.replace(/[^A-Za-z0-9 ]/g, '').split(/\s+/).map((part) => part[0]).join('').slice(0, 2).toUpperCase() || '?';
+  return (
+    <span className={`avatar${player.connected ? '' : ' offline'}`} style={player.team ? teamStyle(player.team) : undefined}>
+      {initials}
+      <span className={`presence-dot${player.connected ? ' online' : ''}`} aria-label={player.connected ? 'Online' : 'Offline'} />
+    </span>
   );
 }
 
@@ -319,32 +358,27 @@ function Lobby({ view, act, onToast, onManagePacks }: { view: RoomView; act: Act
   }
 
   return (
-    <main className="layout">
-      <section className="setup-wrap">
-        <div className="lobby-head">
-          <div>
-            <div className="eyebrow">Operation {view.code} · {view.players.length} {view.players.length === 1 ? 'agent' : 'agents'} on the line</div>
-            <h1 className="handoff-title">Choose your post.</h1>
-            <p className="handoff-copy lobby-copy">Each network needs one spymaster and at least one field operative. You are agent <b>{view.you.name}</b>{view.you.isHost ? ', the handler' : ''}.</p>
-          </div>
-          <div className="share-box">
+    <main className="layout lobby-layout">
+      <section className="lobby-roster" aria-labelledby="roster-title">
+        <div className="section-head">
+          <h1 className="section-title" id="roster-title">Field agent roster</h1>
+          <div className="share-row">
             <span className="room-code-big" data-testid="text-room-code-big">{view.code}</span>
-            <button type="button" className="quiet-button" onClick={copyLink} data-testid="button-copy-link"><Copy size={14} /> Copy link</button>
+            <button type="button" className="chip-button" onClick={copyLink} data-testid="button-copy-link"><Copy size={13} /> Copy link</button>
           </div>
         </div>
-
-        <div className="team-columns">
+        <div className="squad-grid">
           {(['red', 'blue'] as const).map((team) => {
-            const spymaster = view.players.find((player) => player.team === team && player.seat === 'spymaster');
-            const operatives = view.players.filter((player) => player.team === team && player.seat === 'operative');
-            const youHere = view.you.team === team;
+            const members = view.players.filter((player) => player.team === team);
+            const spymaster = members.find((player) => player.seat === 'spymaster');
+            const operatives = members.filter((player) => player.seat === 'operative');
+            const youOperativeHere = view.you.team === team && view.you.seat === 'operative';
             return (
-              <section key={team} className="panel team-column" style={teamStyle(team)} aria-label={`${view.teamNames[team]} team`}>
-                <div className="team-column-head">
-                  <span className="team-dot" />
+              <section key={team} className="panel squad" style={teamStyle(team)} aria-label={`${view.teamNames[team]} team`}>
+                <div className="squad-head">
                   {view.you.isHost ? (
                     <input
-                      className="team-name-input"
+                      className="squad-name-input"
                       value={names[team]}
                       maxLength={18}
                       onChange={(event) => setNames({ ...names, [team]: event.target.value })}
@@ -354,25 +388,25 @@ function Lobby({ view, act, onToast, onManagePacks }: { view: RoomView; act: Act
                       data-testid={`input-team-${team}`}
                     />
                   ) : (
-                    <h2 className="side-title" style={{ margin: 0 }} data-testid={`text-team-name-${team}`}>{view.teamNames[team]}</h2>
+                    <h2 className="squad-name" data-testid={`text-team-name-${team}`}>{view.teamNames[team]} squad</h2>
                   )}
-                  {view.startingTeam === team && <span className="role-pill">First move</span>}
+                  <span className="count-chip">{members.length} {members.length === 1 ? 'member' : 'members'}</span>
                 </div>
-
-                <div className="seat-label"><KeyRound size={13} /> Spymaster</div>
-                {spymaster ? (
-                  <PlayerRow player={spymaster} you={view.you} />
-                ) : (
-                  <button type="button" className="seat-button" onClick={() => act({ type: 'take-seat', team, seat: 'spymaster' })} data-testid={`button-seat-${team}-spymaster`}>
-                    Take the codebook
-                  </button>
-                )}
-
-                <div className="seat-label"><Users size={13} /> Operatives</div>
-                {operatives.map((player) => <PlayerRow key={player.id} player={player} you={view.you} />)}
-                {!(youHere && view.you.seat === 'operative') && (
-                  <button type="button" className="seat-button" onClick={() => act({ type: 'take-seat', team, seat: 'operative' })} data-testid={`button-seat-${team}-operative`}>
-                    Enlist as operative
+                {view.startingTeam === team && <span className="mono-label squad-first">Makes the first move</span>}
+                <div className="squad-rule" />
+                <div className="member-list">
+                  {spymaster ? (
+                    <MemberRow player={spymaster} you={view.you} />
+                  ) : (
+                    <button type="button" className="dashed-button" onClick={() => act({ type: 'take-seat', team, seat: 'spymaster' })} data-testid={`button-seat-${team}-spymaster`}>
+                      + Claim spymaster seat
+                    </button>
+                  )}
+                  {operatives.map((player) => <MemberRow key={player.id} player={player} you={view.you} />)}
+                </div>
+                {!youOperativeHere && (
+                  <button type="button" className="dashed-button" onClick={() => act({ type: 'take-seat', team, seat: 'operative' })} data-testid={`button-seat-${team}-operative`}>
+                    + Join {view.teamNames[team]} squad
                   </button>
                 )}
               </section>
@@ -381,51 +415,56 @@ function Lobby({ view, act, onToast, onManagePacks }: { view: RoomView; act: Act
         </div>
 
         {unseated.length > 0 && (
-          <section className="panel side-panel waiting-panel">
-            <div className="seat-label">Awaiting assignment</div>
-            <div className="player-chips">{unseated.map((player) => <PlayerRow key={player.id} player={player} you={view.you} />)}</div>
+          <section className="panel unseated-panel">
+            <span className="mono-label">Awaiting assignment</span>
+            <div className="member-chips">{unseated.map((player) => <MemberRow key={player.id} player={player} you={view.you} />)}</div>
           </section>
         )}
+      </section>
 
+      <section className="lobby-settings" aria-labelledby="settings-title">
+        <h2 className="section-title" id="settings-title">Tactical intel settings</h2>
         <WordsPanel view={view} act={act} onToast={onToast} onManagePacks={onManagePacks} />
-
-        <section className="panel setup-panel lobby-foot">
-          <div className="privacy-note">
-            <Shield size={17} aria-hidden="true" />
-            <span>{problem ?? 'All posts filled. The spymasters receive the map the moment the words are dealt.'}</span>
-          </div>
-          <div className="action-row">
-            {view.you.seat && (
-              <button type="button" className="secondary-button" onClick={() => act({ type: 'leave-seat' })} data-testid="button-leave-seat">Stand down</button>
-            )}
-            {view.you.isHost ? (
-              <button type="button" className="primary-button" disabled={Boolean(problem)} onClick={() => act({ type: 'start' })} data-testid="button-start-game">
-                Launch mission <ArrowRight size={15} />
-              </button>
-            ) : (
-              <span className="role-pill">Awaiting the handler’s go</span>
-            )}
-          </div>
-        </section>
+        <div className="panel launch-panel">
+          <p className="muted-copy small center" data-testid="text-seating-status">
+            {problem ?? 'All spymasters are locked in. Prepared for deployment.'}
+          </p>
+          {view.you.isHost ? (
+            <button type="button" className="gold-button" disabled={Boolean(problem)} onClick={() => act({ type: 'start' })} data-testid="button-start-game">
+              Authorize game launch
+            </button>
+          ) : (
+            <span className="waiting-pill">Awaiting the host’s authorization</span>
+          )}
+          {view.you.seat && (
+            <button type="button" className="text-button" onClick={() => act({ type: 'leave-seat' })} data-testid="button-leave-seat">Stand down from my seat</button>
+          )}
+        </div>
       </section>
     </main>
   );
 }
 
-function PlayerRow({ player, you }: { player: PlayerView; you: PlayerView }) {
+function MemberRow({ player, you }: { player: PlayerView; you: PlayerView }) {
+  const isSpymaster = player.seat === 'spymaster';
   return (
-    <div className={`player-row${player.connected ? '' : ' offline'}`} data-testid={`row-player-${player.id}`}>
-      <span className={`presence-dot${player.connected ? ' online' : ''}`} aria-label={player.connected ? 'Online' : 'Offline'} />
-      <span className="player-name">{player.name}{player.id === you.id && ' (you)'}</span>
-      {player.isHost && <Crown size={13} aria-label="Handler" />}
+    <div className={`member-row${isSpymaster ? ' is-spymaster' : ''}${player.connected ? '' : ' offline'}`} data-testid={`row-player-${player.id}`}>
+      <Avatar player={player} />
+      <span className="member-name">{player.name}{player.id === you.id && <span className="you-tag"> (you)</span>}</span>
+      {player.isHost && <Crown size={13} className="host-icon" aria-label="Host" />}
+      {player.seat && <span className={`role-chip${isSpymaster ? ' spymaster' : ''}`}>{player.seat}</span>}
     </div>
   );
 }
 
-function Table({ view, act }: { view: RoomView; act: Act }) {
+function Table({ view, act, log }: { view: RoomView; act: Act; log: LogEntry[] }) {
   const [mapVisible, setMapVisible] = useState(true);
   const [clueDraft, setClueDraft] = useState('');
-  const [numberDraft, setNumberDraft] = useState<ClueNumber>(1);
+  // Digits only, 0 to 9 (the server's range). Kept as text so the field can be empty while typing.
+  const [numberDraft, setNumberDraft] = useState('');
+  // A tapped card is only marked; nothing is sent until the choice is confirmed.
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [submitting, setSubmitting] = useState(false);
 
   const { you, teamNames, activeTeam, phase } = view;
   const activeName = teamNames[activeTeam];
@@ -435,184 +474,359 @@ function Table({ view, act }: { view: RoomView; act: Act }) {
   const finished = phase === 'finished';
   const showKey = finished || (isSpymaster && mapVisible);
   const canPenaltyReveal = isActiveSpymaster && phase === 'clue' && view.penaltyRevealPending && mapVisible;
+  const isGuessing = phase === 'guessing' && isActiveOperative;
+
+  const isPenaltyTarget = (card: CardView) => canPenaltyReveal && card.role === activeTeam && !card.revealed;
+  const isSelectable = (card: CardView) => (isGuessing && !card.revealed) || isPenaltyTarget(card);
+  // Derived, so a mark disappears by itself once the card is revealed or the turn moves on.
+  const selected = view.cards.find((card) => card.id === selectedId && isSelectable(card)) ?? null;
+
+  useEffect(() => {
+    if (!selected) return undefined;
+    const onKey = (event: KeyboardEvent) => event.key === 'Escape' && setSelectedId(null);
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [selected]);
 
   async function submitClue(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (await act({ type: 'give-clue', word: clueDraft, number: numberDraft })) setClueDraft('');
+    if (numberDraft === '') return;
+    if (await act({ type: 'give-clue', word: clueDraft, number: Number(numberDraft) })) {
+      setClueDraft('');
+      setNumberDraft('');
+    }
   }
 
-  function chooseCard(card: CardView) {
-    if (canPenaltyReveal) void act({ type: 'penalty-reveal', cardId: card.id });
-    else void act({ type: 'guess', cardId: card.id });
+  function markCard(card: CardView) {
+    setSelectedId(selected?.id === card.id ? null : card.id);
   }
 
-  function renderCard(card: CardView, index: number) {
+  async function confirmCard() {
+    if (!selected || submitting) return;
+    setSubmitting(true);
+    const ok = await act(canPenaltyReveal ? { type: 'penalty-reveal', cardId: selected.id } : { type: 'guess', cardId: selected.id });
+    setSubmitting(false);
+    if (ok) setSelectedId(null);
+  }
+
+  // End turn submits the marked word (if any), then passes the turn if the guess didn't already.
+  async function endTurn() {
+    if (submitting) return;
+    setSubmitting(true);
+    if (selected) {
+      const next = await act({ type: 'guess', cardId: selected.id });
+      if (next) setSelectedId(null);
+      if (next?.phase === 'guessing' && next.activeTeam === activeTeam) await act({ type: 'end-turn' });
+    } else {
+      await act({ type: 'end-turn' });
+    }
+    setSubmitting(false);
+  }
+
+  function cardState(card: CardView): { tone: string; label: string } {
+    if (card.id === selected?.id) return { tone: showKey && card.role ? `key-${card.role} is-selected` : 'is-selected', label: canPenaltyReveal ? 'Reveal target' : 'Target marked' };
+    if (showKey && card.role) {
+      if (card.revealed) return { tone: 'resolved', label: 'Resolved' };
+      if (card.role === 'assassin') return { tone: 'key-assassin', label: 'Assassin' };
+      if (card.role === 'neutral') return { tone: 'key-neutral', label: 'Bystander' };
+      return { tone: `key-${card.role}`, label: `${teamNames[card.role]} agent` };
+    }
+    if (card.revealed && card.role) {
+      if (card.role === 'assassin') return { tone: 'revealed-assassin', label: 'Assassin' };
+      if (card.role === 'neutral') return { tone: 'revealed-neutral', label: 'Bystander' };
+      return { tone: `revealed-${card.role}`, label: `${teamNames[card.role]} agent` };
+    }
+    return { tone: '', label: 'Unrevealed' };
+  }
+
+  function renderCard(card: CardView) {
     const keyed = showKey && card.role !== null && !card.revealed;
-    const isPenaltyTarget = canPenaltyReveal && card.role === activeTeam && !card.revealed;
-    const selectable = (phase === 'guessing' && isActiveOperative && !card.revealed) || isPenaltyTarget;
-    const cardClass = ['word-card', card.revealed && card.role ? `revealed-${card.role}` : '', keyed ? `key-${card.role}` : ''].filter(Boolean).join(' ');
-    const label = card.revealed && card.role
+    const penaltyTarget = isPenaltyTarget(card);
+    const selectable = isSelectable(card);
+    const isSelected = selected?.id === card.id;
+    const { tone, label } = cardState(card);
+    const assassin = tone.includes('assassin');
+    const aria = card.revealed && card.role
       ? `${card.word}, revealed as ${roleLabel(card.role, teamNames)}`
-      : `${card.word}${keyed && card.role ? `, hidden role: ${roleLabel(card.role, teamNames)}` : ''}${isPenaltyTarget ? ', select for penalty reveal' : ''}`;
+      : `${card.word}${keyed && card.role ? `, hidden role: ${roleLabel(card.role, teamNames)}` : ''}${penaltyTarget ? ', select for penalty reveal' : ''}`;
 
     return (
       <button
         key={card.id}
         type="button"
-        className={cardClass}
+        className={`word-card ${tone}`.trim()}
         disabled={!selectable}
-        onClick={() => chooseCard(card)}
-        aria-label={label}
+        onClick={() => markCard(card)}
+        aria-pressed={selectable ? isSelected : undefined}
+        aria-label={aria}
         data-testid={`card-word-${card.id}`}
         data-role={card.revealed ? card.role ?? undefined : undefined}
       >
-        <span className="card-index">{String(index + 1).padStart(2, '0')}</span>
-        <span>{card.word}</span>
+        {!assassin && <span className="card-label">{label}</span>}
+        <span className="card-word">{card.word}</span>
+        {assassin ? (
+          <span className="card-label assassin-label"><span className="skull-badge"><Skull size={9} strokeWidth={2.5} /></span>{label}</span>
+        ) : (
+          <span className="card-rule" aria-hidden="true"><i /><b /><i /></span>
+        )}
       </button>
     );
   }
 
-  const banner = (() => {
-    if (finished) return null;
-    if (isActiveSpymaster && phase === 'clue') return { icon: <KeyRound size={18} />, title: `Transmit a clue · ${activeName}`, copy: 'Your operatives are standing by. Only your screen shows the map.' };
-    if (isActiveOperative && phase === 'guessing') return { icon: <Users size={18} />, title: `Make contact · ${activeName}`, copy: 'Talk it through. Tap a word, or go dark after a correct guess.' };
-    if (phase === 'clue') return { icon: <KeyRound size={18} />, title: `${activeName} spymaster is encoding`, copy: view.reviewPending ? 'Their clue is being vetted by the rival spymaster.' : 'Hold position. The transmission will appear here.' };
-    return { icon: <Users size={18} />, title: `${activeName} operatives are in the field`, copy: 'Watch the board. It’s not your move.' };
-  })();
+  const phaseText = finished
+    ? 'Mission complete'
+    : phase === 'clue'
+      ? `${activeName} spymaster ${view.reviewPending ? 'under review' : 'encoding'}`
+      : `${activeName} operatives guessing`;
+  const turnNumber = view.clueHistory.length + (phase === 'clue' ? 1 : 0);
+  const assassinCard = view.cards.find((card) => card.role === 'assassin');
 
   return (
-    <main className="layout">
-      <div className="game-layout">
+    <>
+      <div className="status-bar" style={teamStyle(activeTeam)}>
+        <div className="status-phase"><span className="team-dot" /> {phaseText}</div>
+        <span className="timer-pill"><Radio size={15} /> Turn {Math.max(turnNumber, 1)}</span>
+        <ScoreStrip view={view} detailed={isSpymaster || finished} />
+      </div>
+
+      <main className="layout game-layout">
         <section className="game-main" aria-label={isSpymaster ? 'Spymaster board' : 'Operative word board'}>
-          <div className="game-head">
-            <div>
-              <div className="game-kicker"><span className="live-dot" /> You are {seatLabel(you, teamNames)}</div>
-              <h1 className="game-title">{finished ? 'Declassified' : isSpymaster ? `${you.team ? teamNames[you.team] : ''} spymaster` : 'Field board'}</h1>
-            </div>
-            <div className="turn-badge" style={teamStyle(activeTeam)}>
-              <span className="team-dot" /> {finished ? 'Mission over' : `${activeName} move`}
-            </div>
-          </div>
-          <ScoreStrip view={view} />
+          <h1 className="sr-only">{finished ? 'Declassified' : isSpymaster ? 'Spymaster board' : 'Field board'} · You are {seatLabel(you, teamNames)}</h1>
+
           {finished && (
-            <section className="result-panel" data-testid="status-game-result">
-              <div className="eyebrow">Mission report</div>
-              <h2>{view.winner ? `${teamNames[view.winner]} wins the op.` : 'The file is closed.'}</h2>
-              <p>{view.resultMessage}</p>
-              <span className="result-stamp" aria-hidden="true">Case closed</span>
+            <section className="broadcast result-broadcast" data-testid="status-game-result">
+              <div className="broadcast-body">
+                <span className="broadcast-icon"><Flag size={20} /></span>
+                <div>
+                  <span className="mono-label gold">Mission report</span>
+                  <div className="broadcast-word">{view.winner ? `${teamNames[view.winner]} wins the op` : 'The file is closed'}</div>
+                  <span className="muted-copy small">{view.resultMessage}</span>
+                </div>
+              </div>
             </section>
           )}
-          {banner && (
-            <div className="phase-banner" style={teamStyle(activeTeam)}>
-              {banner.icon}
-              <div><b>{banner.title}</b><span>{banner.copy}</span></div>
-            </div>
+
+          {!finished && (!isSpymaster || phase === 'guessing') && (
+            <ClueBroadcast view={view}>
+              {isGuessing && (
+                <div className="guess-actions" role="group" aria-label="Confirm your guess" data-testid="panel-guess-confirm">
+                  <div className="guess-target" aria-live="polite">
+                    <span className="mono-label">{selected ? 'Target marked' : 'No target marked'}</span>
+                    <b data-testid="text-selected-card">{selected ? selected.word : 'Tap a word'}</b>
+                  </div>
+                  {selected && (
+                    <button type="button" className="icon-button" aria-label="Clear marked word" onClick={() => setSelectedId(null)} data-testid="button-clear-guess"><X size={16} /></button>
+                  )}
+                  {selected && (
+                    <button type="button" className="ghost-button" onClick={confirmCard} disabled={submitting} data-testid="button-submit-guess">
+                      Submit
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    className="solid-button"
+                    onClick={endTurn}
+                    disabled={submitting || (!selected && view.turnGuesses < 1)}
+                    title={!selected && view.turnGuesses < 1 ? 'Mark a word first. You must make one guess before the turn can end.' : selected ? 'Submits the marked word, then passes the turn.' : undefined}
+                    data-testid="button-stop-turn"
+                  >
+                    End turn
+                  </button>
+                </div>
+              )}
+            </ClueBroadcast>
           )}
-          {isActiveSpymaster && view.penaltyRevealPending && phase === 'clue' && (
-            <div className="bonus-callout" data-testid="status-penalty-reveal">
-              <strong>Clue penalty</strong> tap one unrevealed {activeName} card to reveal it, then give your clue.
-              <div className="action-row" style={{ marginTop: 9 }}>
-                {!mapVisible && <button className="secondary-button" type="button" onClick={() => setMapVisible(true)} data-testid="button-show-penalty-map">Show the map</button>}
-                <button className="secondary-button" type="button" onClick={() => act({ type: 'skip-penalty' })} data-testid="button-skip-penalty">Skip reveal</button>
+
+          {isSpymaster && !finished && (
+            <div className="map-head">
+              <h2 className="section-title">Tactical master map (spymaster only)</h2>
+              <div className="map-tools">
+                <span className="legend"><i className="legend-dot neutral" /> Neutral <i className="legend-dot assassin" /> Assassin</span>
+                <button type="button" className="chip-button" onClick={() => setMapVisible(!mapVisible)} aria-pressed={mapVisible} data-testid="button-toggle-key">
+                  {mapVisible ? <><EyeOff size={13} /> Cover map</> : <><Eye size={13} /> Show map</>}
+                </button>
               </div>
             </div>
           )}
-          {isSpymaster && !finished && (
-            <div className="spymaster-tools">
-              <span className="role-pill">Secret map {mapVisible ? 'exposed' : 'concealed'}</span>
-              <button type="button" className="quiet-button" onClick={() => setMapVisible(!mapVisible)} aria-pressed={mapVisible} data-testid="button-toggle-key">
-                {mapVisible ? <><EyeOff size={15} /> Cover map</> : <><Eye size={15} /> Show map</>}
-              </button>
+
+          {isActiveSpymaster && view.penaltyRevealPending && phase === 'clue' && (
+            <div className="alert-panel gold" data-testid="status-penalty-reveal">
+              <span className="mono-label gold">Clue penalty</span>
+              <p>Mark one unrevealed {activeName} card and confirm to reveal it, then give your clue.</p>
+              <div className="action-row">
+                {canPenaltyReveal && (
+                  <button className="solid-button" type="button" disabled={!selected || submitting} onClick={confirmCard} data-testid="button-confirm-penalty">
+                    {selected ? `Reveal ${selected.word}` : 'Mark a card'}
+                  </button>
+                )}
+                {!mapVisible && <button className="ghost-button" type="button" onClick={() => setMapVisible(true)} data-testid="button-show-penalty-map">Show the map</button>}
+                <button className="ghost-button" type="button" onClick={() => act({ type: 'skip-penalty' })} data-testid="button-skip-penalty">Skip reveal</button>
+              </div>
             </div>
           )}
+
           <div className="board" role="group" aria-label={showKey ? 'Word board with secret roles' : 'Word board'}>
             {view.cards.map(renderCard)}
-          </div>
-          <div className="board-legend">
-            <span>25 cover names · {view.cards.filter((card) => card.revealed).length} exposed</span>
-            <span>{finished ? 'All identities declassified' : isSpymaster ? 'Guard your screen' : 'Trust no one'}</span>
           </div>
         </section>
 
         <aside className="game-side">
           {finished ? (
-            <section className="panel side-panel">
-              <h2 className="side-title">New assignment?</h2>
-              {you.isHost ? (
-                <>
-                  <p className="turn-copy">A new mission deals 25 fresh cover names from the same word list, and a new secret map. Everyone keeps their post. You can change the words in the lobby.</p>
-                  <button type="button" className="primary-button" style={{ width: '100%' }} onClick={() => act({ type: 'new-game' })} data-testid="button-new-game-finished">
-                    New game <RotateCcw size={14} />
-                  </button>
-                </>
-              ) : (
-                <p className="turn-copy">The handler can start a new mission. You’ll be back in the briefing room with your post.</p>
-              )}
-            </section>
-          ) : isActiveSpymaster && phase === 'clue' ? (
-            <section className="panel side-panel" aria-labelledby="clue-form-title">
-              <h2 className="side-title" id="clue-form-title">{view.penaltyRevealPending ? 'Reveal first' : view.reviewPending ? 'Clue under review' : 'Transmit a clue'}</h2>
-              {view.penaltyRevealPending ? (
-                <p className="turn-copy">Use the map to choose one friendly card for the penalty reveal, or skip it.</p>
-              ) : view.reviewPending ? (
-                <p className="turn-copy" data-testid="status-review-waiting">
-                  “{view.review?.word}” matches a word on the board. The {teamNames[otherTeam(activeTeam)]} spymaster is deciding whether it stands.
-                </p>
-              ) : (
-                <>
-                  <p className="turn-copy">Choose one word and a number. The number sets your target, plus one extra guess.</p>
+            <>
+              <h2 className="section-title">Next assignment</h2>
+              <section className="panel side-panel">
+                {you.isHost ? (
+                  <>
+                    <p className="muted-copy small">A new mission deals 25 fresh words from the same word list and a new secret map. Everyone keeps their seat.</p>
+                    <button type="button" className="gold-button" onClick={() => act({ type: 'new-game' })} data-testid="button-new-game-finished">
+                      <RotateCcw size={15} /> New game
+                    </button>
+                  </>
+                ) : (
+                  <p className="muted-copy small">The host can start a new mission. You’ll be back in the lobby with your seat.</p>
+                )}
+              </section>
+            </>
+          ) : isSpymaster ? (
+            <>
+              <h2 className="section-title" id="clue-form-title">Clue encryption panel</h2>
+              <section className="panel side-panel" aria-labelledby="clue-form-title" style={teamStyle(you.team ?? activeTeam)}>
+                {!isActiveSpymaster || phase !== 'clue' ? (
+                  <p className="muted-copy small" data-testid="status-spymaster-waiting">
+                    {phase === 'guessing'
+                      ? `${activeName} operatives are working on the clue. Watch the map.`
+                      : `The ${activeName} spymaster is encoding a clue${view.reviewPending ? ' that is being vetted' : ''}.`}
+                  </p>
+                ) : view.penaltyRevealPending ? (
+                  <p className="muted-copy small">Use the map to reveal one of your own cards for the clue penalty, or skip it.</p>
+                ) : view.reviewPending ? (
+                  <p className="muted-copy small" data-testid="status-review-waiting">
+                    “{view.review?.word}” matches a word on the board. The {teamNames[otherTeam(activeTeam)]} spymaster is deciding whether it stands.
+                  </p>
+                ) : (
                   <form className="clue-form" onSubmit={submitClue}>
-                    <label className="sr-only" htmlFor="clue-input">One-word clue</label>
-                    <input id="clue-input" value={clueDraft} onChange={(event) => setClueDraft(event.target.value)} placeholder="Codeword" autoComplete="off" maxLength={32} data-testid="input-clue" />
-                    <label className="sr-only" htmlFor="clue-number">Guess number</label>
-                    <select
-                      id="clue-number"
-                      value={numberDraft}
-                      onChange={(event) => setNumberDraft(event.target.value === 'unlimited' ? 'unlimited' : Number(event.target.value))}
-                      data-testid="select-clue-number"
-                    >
-                      <option value="0">0 · free</option>
-                      {Array.from({ length: 9 }, (_, index) => <option key={index + 1} value={index + 1}>{index + 1}</option>)}
-                      <option value="unlimited">∞ · unlimited</option>
-                    </select>
-                    <button type="submit" className="primary-button" data-testid="button-submit-clue">Transmit <ArrowRight size={14} /></button>
+                    <div className="field">
+                      <label className="mono-label" htmlFor="clue-input">Step 1: Entry keyword</label>
+                      <div className="input-icon">
+                        <input id="clue-input" className="text-input" value={clueDraft} onChange={(event) => setClueDraft(event.target.value)} placeholder="One word" autoComplete="off" maxLength={32} data-testid="input-clue" />
+                        <Pencil size={16} aria-hidden="true" />
+                      </div>
+                    </div>
+                    <div className="field">
+                      <label className="mono-label" htmlFor="clue-number">Step 2: Target number</label>
+                      <input
+                        id="clue-number"
+                        className="text-input mono"
+                        type="text"
+                        inputMode="numeric"
+                        pattern="[0-9]"
+                        maxLength={1}
+                        autoComplete="off"
+                        placeholder="Enter target number (0–9)"
+                        value={numberDraft}
+                        onChange={(event) => setNumberDraft(event.target.value.replace(/\D/g, '').slice(-1))}
+                        required
+                        data-testid="input-clue-number"
+                      />
+                    </div>
+                    <div className="divider" />
+                    <div className="summary-box">
+                      <span className="mono-label team">Transmission summary</span>
+                      <p>
+                        {clueDraft.trim() && numberDraft !== ''
+                          ? <>You are submitting <b>{clueDraft.trim().toUpperCase()} — {numberDraft}</b> to your field agents. {numberDraft === '0' ? 'A zero clue has no guess limit.' : 'They get that many guesses, plus one extra.'}</>
+                          : 'Enter a one-word clue and a number from 0 to 9. The number sets your target, plus one extra guess.'}
+                      </p>
+                    </div>
+                    <button type="submit" className="team-button" disabled={!clueDraft.trim() || numberDraft === ''} data-testid="button-submit-clue">Encrypt &amp; transmit clue</button>
                   </form>
-                  <p className="turn-copy" style={{ marginTop: 11, marginBottom: 0 }}>A zero or unlimited clue has no numeric cap. Operatives must make one guess before stopping.</p>
-                </>
+                )}
+              </section>
+              {assassinCard && !assassinCard.revealed && mapVisible && (
+                <section className="alert-panel red">
+                  <span className="mono-label red">Warning: assassin position</span>
+                  <p>The word <b>{assassinCard.word}</b> is the assassin. Ensure your clue cannot be linked to it under any circumstance.</p>
+                </section>
               )}
-            </section>
+            </>
           ) : (
-            <section className="panel side-panel" aria-labelledby="current-clue-title">
-              {phase === 'guessing' ? (
-                <>
-                  <CurrentClue view={view} titleId="current-clue-title" />
-                  <div className="turn-copy" style={{ marginTop: 15 }}>
-                    {view.guessesRemaining === 'unlimited'
-                      ? 'No numeric cap. One correct guess is required before stopping.'
-                      : `${view.guessesRemaining} ${view.guessesRemaining === 1 ? 'guess' : 'guesses'} left in this clue budget.`}
-                  </div>
-                  {isActiveOperative && (
-                    <>
-                      <button type="button" className="secondary-button" style={{ width: '100%', marginTop: 4 }} onClick={() => act({ type: 'end-turn' })} disabled={view.turnGuesses < 1} data-testid="button-stop-turn">
-                        Go dark <Flag size={14} />
-                      </button>
-                      {view.turnGuesses < 1 && <p className="turn-copy" style={{ margin: '9px 0 0', fontSize: 10 }}>One guess minimum before you can go dark.</p>}
-                    </>
-                  )}
-                </>
-              ) : (
-                <>
-                  <h2 className="side-title" id="current-clue-title">Awaiting transmission</h2>
-                  <p className="turn-copy">The {activeName} spymaster is encoding a word. It will appear on every screen at once.</p>
-                </>
-              )}
-            </section>
+            <>
+              <h2 className="section-title">Operation telemetry</h2>
+              <Telemetry view={view} log={log} />
+              <section className="panel side-panel">
+                <span className="mono-label gold">Covert rules</span>
+                <p className="muted-copy small">
+                  Analyze the code word from your spymaster. Avoid the bystanders and stay far away from the <b className="danger">assassin</b>.
+                  {phase === 'guessing' && isActiveOperative && view.turnGuesses < 1 && ' Make one guess before you can end the turn.'}
+                </p>
+              </section>
+            </>
           )}
           <PlayersPanel view={view} act={act} />
-          <HistoryPanel view={view} />
+          {(isSpymaster || finished) && <HistoryPanel view={view} />}
         </aside>
+      </main>
+    </>
+  );
+}
+
+function ClueBroadcast({ view, children }: { view: RoomView; children?: ReactNode }) {
+  const clue = view.phase === 'guessing' ? view.clue : null;
+  const team = clue?.team ?? view.activeTeam;
+  return (
+    <section className="broadcast" style={teamStyle(team)} data-testid="panel-current-clue">
+      <div className="broadcast-body">
+        <span className="broadcast-icon"><SatelliteDish size={20} /></span>
+        <div>
+          <span className="mono-label team" id="current-clue-title">{clue ? `Active ${view.teamNames[team]} clue broadcast` : `Awaiting ${view.teamNames[team]} transmission`}</span>
+          <div className="broadcast-word">
+            <span data-testid="text-current-clue">{clue?.word ?? 'Standing by'}</span>
+            {clue && <span className="broadcast-number" data-testid="text-clue-number">{numberText(clue.number)}</span>}
+          </div>
+          {clue && children && <span className="broadcast-meta">{view.guessesRemaining === 'unlimited' ? 'No numeric cap' : `${view.guessesRemaining} ${view.guessesRemaining === 1 ? 'guess' : 'guesses'} left`}</span>}
+        </div>
       </div>
-    </main>
+      {children}
+      {clue && !children && (
+        <span className="broadcast-meta">
+          {view.guessesRemaining === 'unlimited'
+            ? 'No numeric cap'
+            : `${view.guessesRemaining} ${view.guessesRemaining === 1 ? 'guess' : 'guesses'} left`}
+        </span>
+      )}
+    </section>
+  );
+}
+
+function Telemetry({ view, log }: { view: RoomView; log: LogEntry[] }) {
+  // Before anything happens this session, fall back to the clue history the server keeps.
+  const entries = log.length
+    ? log
+    : view.clueHistory.map((record, index) => ({
+        id: -index - 1,
+        text: `${view.teamNames[record.team]} spymaster transmitted clue: ${record.word} — ${numberText(record.number)}`,
+        time: `Turn ${record.turn}`,
+        team: record.team,
+      }));
+  return (
+    <section className="panel telemetry" aria-label="Live activity">
+      <div className="telemetry-head">
+        <span className="mono-label plain">Live activity transmissions</span>
+        <span className="count-chip neutral" data-testid="text-clue-count">{view.clueHistory.length} {view.clueHistory.length === 1 ? 'clue' : 'clues'}</span>
+      </div>
+      {entries.length ? (
+        <ul className="telemetry-list" data-testid="list-clue-history">
+          {entries.map((entry) => (
+            <li key={entry.id} style={entry.team ? teamStyle(entry.team) : undefined} className={entry.team ? 'has-team' : ''}>
+              <span className="telemetry-dot" />
+              <div><span>{entry.text}</span><time>{entry.time}</time></div>
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <p className="muted-copy small" data-testid="empty-clue-history">No transmissions yet. The first spymaster is waiting to make contact.</p>
+      )}
+    </section>
   );
 }
 
@@ -625,16 +839,16 @@ function ReviewDialog({ view, act }: { view: RoomView; act: Act }) {
       <section className="dialog" role="dialog" aria-modal="true" aria-labelledby="review-title">
         <div className="dialog-head">
           <div>
-            <div className="eyebrow">Counterintelligence</div>
+            <span className="mono-label gold">Counterintelligence</span>
             <h2 id="review-title">Vet this clue</h2>
           </div>
         </div>
         <p className="dialog-copy">
           The {view.teamNames[review.team]} spymaster’s clue matches a hidden word or part of a compound word. Meaning and house rules are yours to judge; this check is only a prompt, not an automatic ruling.
         </p>
-        <div className="word-check" data-testid="text-questionable-clue">“{review.word}” · {review.number === 'unlimited' ? '∞' : review.number}</div>
+        <div className="word-check" data-testid="text-questionable-clue">“{review.word}” · {numberText(review.number)}</div>
         <div className="dialog-actions">
-          <button type="button" className="secondary-button" onClick={() => act({ type: 'review-clue', uphold: false })} data-testid="button-accept-clue"><Check size={14} /> Accept clue</button>
+          <button type="button" className="ghost-button" onClick={() => act({ type: 'review-clue', uphold: false })} data-testid="button-accept-clue"><Check size={14} /> Accept clue</button>
           <button type="button" className="danger-button" onClick={() => act({ type: 'review-clue', uphold: true })} data-testid="button-flag-clue"><Flag size={14} /> Uphold penalty</button>
         </div>
       </section>
@@ -650,22 +864,22 @@ function RulesDialog({ onClose }: { onClose: () => void }) {
       <section className="dialog" role="dialog" aria-modal="true" aria-labelledby="dialog-title">
         <div className="dialog-head">
           <div>
-            <div className="eyebrow">Field manual</div>
+            <span className="mono-label gold">Field manual</span>
             <h2 id="dialog-title">Rules of engagement</h2>
           </div>
-          <button type="button" className="icon-button" aria-label="Close dialog" onClick={onClose} data-testid="button-close-dialog"><X size={17} /></button>
+          <button type="button" className="icon-button" aria-label="Close dialog" onClick={onClose} data-testid="button-close-dialog"><X size={16} /></button>
         </div>
         <p className="dialog-copy">Two teams, each with one spymaster and some operatives. Everyone joins the same room on their own device.</p>
-        <ul className="rule-list">
+        <ol className="rule-list">
           <li>The spymaster gives a single-word clue and a number. The number means that many targets, plus one extra guess.</li>
-          <li>Operatives must guess once. A friendly agent keeps the turn going; a neutral or rival card passes the turn.</li>
-          <li>A zero or unlimited clue has no numeric cap. Stop after any correct guess if you have already guessed once.</li>
+          <li>Operatives mark a word, then Submit to keep guessing or End turn to submit it and pass. A friendly agent keeps the turn going; a neutral or rival card passes it.</li>
+          <li>A zero or unlimited clue has no numeric cap. You must guess at least once before ending the turn.</li>
           <li>Find every friendly agent to win. The assassin ends the game immediately for the other team.</li>
           <li>If a clue matches a word on the board, the opposing spymaster decides on their own screen whether it stands.</li>
           <li>In the lobby, the host picks the word packs and can add the table’s own words. Custom words always make the board.</li>
-        </ul>
+        </ol>
         <p className="dialog-copy">Only spymasters’ devices receive the secret map, so there’s nothing for operatives to peek at.</p>
-        <div className="dialog-actions"><button type="button" className="primary-button" onClick={onClose} data-testid="button-rules-got-it">Understood</button></div>
+        <div className="dialog-actions"><button type="button" className="gold-button compact" onClick={onClose} data-testid="button-rules-got-it">Understood</button></div>
       </section>
     </div>
   );
@@ -681,74 +895,61 @@ function ConnectionBanner({ connection }: { connection: Connection }) {
 
 function LostRoom({ onHome }: { onHome: () => void }) {
   return (
-    <main className="layout">
-      <section className="panel handoff-card" data-testid="status-room-lost">
-        <div className="handoff-icon"><WifiOff size={28} /></div>
-        <h1 className="handoff-title">Operation terminated.</h1>
-        <p className="handoff-copy">The operation has ended or your cover is no longer valid. Ask the handler for a new access code.</p>
-        <button type="button" className="primary-button" onClick={onHome} data-testid="button-back-home">Return to base <ArrowRight size={15} /></button>
+    <main className="layout narrow">
+      <section className="panel center-card" data-testid="status-room-lost">
+        <span className="lost-icon"><WifiOff size={26} /></span>
+        <h1 className="section-title">Operation terminated</h1>
+        <p className="muted-copy">The room has ended or your seat is no longer valid. Ask the host for a new code.</p>
+        <button type="button" className="gold-button" onClick={onHome} data-testid="button-back-home">Return to base <ArrowRight size={15} /></button>
       </section>
     </main>
   );
 }
 
-function ScoreStrip({ view }: { view: RoomView }) {
+function ScoreStrip({ view, detailed }: { view: RoomView; detailed: boolean }) {
   const { remaining, totals, teamNames } = view;
+  const assassinLeft = view.cards.some((card) => card.role === 'assassin' && !card.revealed);
   return (
-    <section className="score-strip" aria-label="Remaining agents">
-      <div className="score-team" style={teamStyle('red')}>
-        <span className="team-dot" />
-        <div className="score-block"><div className="score-name" data-testid="text-team-name-red">{teamNames.red}</div><span className="score-sub">{totals.red - remaining.red} contacted</span></div>
-        <span className="score-number" data-testid="count-team-red">{remaining.red}</span>
-      </div>
-      <span className="versus">AT LARGE</span>
-      <div className="score-team" style={teamStyle('blue')}>
-        <span className="score-number" data-testid="count-team-blue">{remaining.blue}</span>
-        <div className="score-block"><div className="score-name" data-testid="text-team-name-blue">{teamNames.blue}</div><span className="score-sub">{totals.blue - remaining.blue} contacted</span></div>
-        <span className="team-dot" />
-      </div>
-    </section>
-  );
-}
-
-function CurrentClue({ view, titleId }: { view: RoomView; titleId?: string }) {
-  const clue = view.clue;
-  const numberText = clue?.number === 'unlimited' ? '∞' : clue?.number;
-  return (
-    <div className="clue-entry" data-testid="panel-current-clue">
-      <div className="clue-label" id={titleId}>Intercepted · {view.teamNames[clue?.team ?? view.activeTeam]}</div>
-      <div className="clue-word" data-testid="text-current-clue">{clue?.word ?? 'Waiting for a clue'} <span className="clue-number" data-testid="text-clue-number">{numberText}</span></div>
-      {view.guessesRemaining !== 0 && (
-        <div className="guess-track" aria-label={`${view.guessesRemaining} guesses remaining`}>
-          {Array.from({ length: 10 }, (_, index) => {
-            const open = view.guessesRemaining === 'unlimited' ? index < Math.max(view.turnGuesses + 1, 3) : index < view.guessesRemaining;
-            return <span key={index} className={`guess-pip ${open ? 'open' : 'used'}`} />;
-          })}
-          {view.guessesRemaining === 'unlimited' && <span className="clue-label">open-ended</span>}
+    <section className={`scoreboard${detailed ? ' detailed' : ''}`} aria-label="Remaining agents">
+      {(['red', 'blue'] as const).map((team, index) => (
+        <div key={team} className="score-group">
+          {index > 0 && <span className="score-divider" aria-hidden="true" />}
+          <div className="score-box" style={teamStyle(team)} title={`${totals[team] - remaining[team]} of ${totals[team]} found`}>
+            {detailed && <span className="score-chip" data-testid={`text-team-name-${team}`}>{teamNames[team]}</span>}
+            <span className="score-label">{detailed ? 'Agents' : <><span data-testid={`text-team-name-${team}`}>{teamNames[team]}</span> agents:</>}</span>
+            <span className="score-value" data-testid={`count-team-${team}`}>{remaining[team]}</span>
+          </div>
+        </div>
+      ))}
+      {detailed && (
+        <div className="score-box assassin-box">
+          <span className="assassin-chip"><Skull size={14} /> Assassin</span>
+          <span className="score-label">Danger</span>
+          <span className="score-value">{assassinLeft ? 1 : 0}</span>
         </div>
       )}
-    </div>
+    </section>
   );
 }
 
 function PlayersPanel({ view, act }: { view: RoomView; act: Act }) {
   return (
     <section className="panel side-panel" aria-labelledby="players-title">
-      <h2 className="side-title" id="players-title">Agents on the line</h2>
-      <div className="players-list">
+      <span className="mono-label plain" id="players-title">Agents on the line</span>
+      <div className="member-list compact">
         {view.players.map((player) => (
-          <div key={player.id} className={`player-row${player.connected ? '' : ' offline'}`} style={player.team ? teamStyle(player.team) : undefined}>
-            <span className={`presence-dot${player.connected ? ' online' : ''}`} aria-label={player.connected ? 'Online' : 'Offline'} />
-            <span className="player-name">{player.name}{player.id === view.you.id && ' (you)'}</span>
-            <span className="player-seat">{player.team && player.seat ? `${view.teamNames[player.team]} ${player.seat}` : 'observer'}</span>
+          <div key={player.id} className={`member-row${player.connected ? '' : ' offline'}`} style={player.team ? teamStyle(player.team) : undefined}>
+            <Avatar player={player} />
+            <span className="member-name">{player.name}{player.id === view.you.id && <span className="you-tag"> (you)</span>}</span>
+            <span className={`role-chip${player.seat === 'spymaster' ? ' spymaster' : ''}`}>{player.team && player.seat ? `${view.teamNames[player.team]} ${player.seat}` : 'observer'}</span>
           </div>
         ))}
       </div>
       {!view.you.seat && view.phase !== 'finished' && (
-        <div className="action-row" style={{ marginTop: 12 }}>
+        <div className="action-row">
           {(['red', 'blue'] as const).map((team) => (
-            <button key={team} type="button" className="secondary-button" onClick={() => act({ type: 'take-seat', team, seat: 'operative' })} data-testid={`button-join-late-${team}`}>
-              Join {view.teamNames[team]}
+            <button key={team} type="button" className="dashed-button" style={teamStyle(team)} onClick={() => act({ type: 'take-seat', team, seat: 'operative' })} data-testid={`button-join-late-${team}`}>
+              + Join {view.teamNames[team]}
             </button>
           ))}
         </div>
@@ -759,23 +960,22 @@ function PlayersPanel({ view, act }: { view: RoomView; act: Act }) {
 
 function HistoryPanel({ view }: { view: RoomView }) {
   return (
-    <section className="panel side-panel history-panel" aria-labelledby="history-title">
-      <div className="section-heading" style={{ marginBottom: 12 }}>
-        <h2 className="side-title" id="history-title" style={{ margin: 0 }}>Signal log</h2>
-        <span className="role-pill" data-testid="text-clue-count">{view.clueHistory.length} {view.clueHistory.length === 1 ? 'clue' : 'clues'}</span>
+    <section className="panel side-panel" aria-labelledby="history-title">
+      <div className="telemetry-head">
+        <span className="mono-label plain" id="history-title">Signal log</span>
+        <span className="count-chip neutral" data-testid="text-clue-count">{view.clueHistory.length} {view.clueHistory.length === 1 ? 'clue' : 'clues'}</span>
       </div>
       {view.clueHistory.length ? (
-        <div className="history-list" data-testid="list-clue-history">
+        <ul className="telemetry-list" data-testid="list-clue-history">
           {[...view.clueHistory].reverse().map((record) => (
-            <div className="history-row" key={`${record.turn}-${record.team}-${record.word}`} data-testid={`row-clue-${record.turn}`}>
-              <span className="history-dot" style={teamStyle(record.team)} />
-              <div><span className="history-clue">{record.word}</span><span className="history-meta">{view.teamNames[record.team]} · turn {record.turn}</span></div>
-              <span className="history-count">{record.number === 'unlimited' ? '∞' : record.number}</span>
-            </div>
+            <li key={`${record.turn}-${record.team}-${record.word}`} className="has-team" style={teamStyle(record.team)} data-testid={`row-clue-${record.turn}`}>
+              <span className="telemetry-dot" />
+              <div><span><b>{record.word}</b> — {numberText(record.number)}</span><time>{view.teamNames[record.team]} · turn {record.turn}</time></div>
+            </li>
           ))}
-        </div>
+        </ul>
       ) : (
-        <div className="empty-history" data-testid="empty-clue-history">No transmissions yet. The first spymaster is waiting to make contact.</div>
+        <p className="muted-copy small" data-testid="empty-clue-history">No transmissions yet.</p>
       )}
     </section>
   );
