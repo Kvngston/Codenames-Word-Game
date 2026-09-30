@@ -1,0 +1,83 @@
+# Production stack for a single VM: Caddy (HTTPS) -> Spring Boot, with MySQL and
+# RabbitMQ on the private Compose network only. Run from this directory:
+#   docker compose -f compose.prod.yaml up -d --build
+name: word-agents
+
+services:
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    environment:
+      API_DOMAIN: ${API_DOMAIN:?set API_DOMAIN in .env}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on:
+      - app
+
+  app:
+    build: ..
+    restart: unless-stopped
+    mem_limit: 1g
+    environment:
+      DATABASE_URL: jdbc:mysql://mysql:3306/wordagents
+      DATABASE_USERNAME: wordagents
+      DATABASE_PASSWORD: ${MYSQL_PASSWORD:?set MYSQL_PASSWORD in .env}
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_USERNAME: ${RABBITMQ_USERNAME:?set RABBITMQ_USERNAME in .env}
+      RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD:?set RABBITMQ_PASSWORD in .env}
+      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:?set ALLOWED_ORIGINS in .env}
+    depends_on:
+      mysql:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+
+  mysql:
+    image: mysql:8.4
+    restart: unless-stopped
+    environment:
+      MYSQL_DATABASE: wordagents
+      MYSQL_USER: wordagents
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD}
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?set MYSQL_ROOT_PASSWORD in .env}
+    volumes:
+      - mysql-data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -uwordagents -p\"$$MYSQL_PASSWORD\" --silent"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+
+  rabbitmq:
+    image: rabbitmq:4.1
+    restart: unless-stopped
+    environment:
+      # RabbitMQ's default guest user only works from localhost, so a real user is required.
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USERNAME}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD}
+    configs:
+      - source: rabbit-plugins
+        target: /etc/rabbitmq/enabled_plugins
+    volumes:
+      - rabbitmq-data:/var/lib/rabbitmq
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "check_port_listener", "61613"]
+      interval: 10s
+      timeout: 10s
+      retries: 30
+
+configs:
+  rabbit-plugins:
+    content: "[rabbitmq_stomp]."
+
+volumes:
+  caddy-data:
+  caddy-config:
+  mysql-data:
+  rabbitmq-data:
