@@ -24,6 +24,10 @@ services:
     build: ..
     restart: unless-stopped
     mem_limit: 1g
+    # Written by ci-deploy.sh: the release tag this container was built from.
+    env_file:
+      - path: release.env
+        required: false
     environment:
       DATABASE_URL: jdbc:mysql://mysql:3306/wordagents
       DATABASE_USERNAME: wordagents

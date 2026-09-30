@@ -7,6 +7,7 @@ import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;
 import java.util.Map;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.CacheControl;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
@@ -29,14 +30,17 @@ class RoomController {
         @NotBlank(message = "Enter a name.") @Size(max = 24, message = "Keep names to 24 characters.") String name) {}
 
     private final RoomService rooms;
+    private final String version;
 
-    RoomController(RoomService rooms) {
+    RoomController(RoomService rooms, @Value("${app.version}") String version) {
         this.rooms = rooms;
+        this.version = version;
     }
 
+    /** The release deploy waits for this to report the new version. */
     @GetMapping("/healthz")
     Map<String, String> health() {
-        return Map.of("status", "ok");
+        return Map.of("status", "ok", "version", version);
     }
 
     @PostMapping("/rooms")

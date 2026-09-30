@@ -12,6 +12,7 @@ _Replace the heading above with the project's name, and this line with one sente
 - Server env: `DATABASE_URL` (JDBC URL), `DATABASE_USERNAME`, `DATABASE_PASSWORD`, `RABBITMQ_HOST`, `RABBITMQ_STOMP_PORT`, `RABBITMQ_USERNAME`, `RABBITMQ_PASSWORD`, `RABBITMQ_VHOST`, `ALLOWED_ORIGINS` (comma-separated), `PORT`
 - Frontend env: `VITE_API_URL` — origin of the Spring API in production
 - Production: one Oracle Cloud VM running `server/deploy/compose.prod.yaml` (Caddy + app + MySQL + RabbitMQ); see `server/deploy/README.md`
+- CI/CD: PRs run `.github/workflows/test.yml`; each merge to main is tested, released (patch bump, or `#minor` / `#major` in a commit message) and deployed to the VM and Vercel
 
 ## Stack
 

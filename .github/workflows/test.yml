@@ -1,0 +1,49 @@
+# Server tests (including Testcontainers against real MySQL and RabbitMQ) and
+# the TypeScript typecheck. Runs on pull requests to main, and is called by the
+# release workflows before anything deploys.
+name: Test
+
+on:
+  pull_request:
+    branches: [main]
+  workflow_call:
+    inputs:
+      ref:
+        description: Commit, branch or tag to test (defaults to the triggering commit)
+        type: string
+        required: false
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.ref }}
+
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: 25
+          cache: gradle
+
+      - name: Server tests
+        working-directory: server
+        run: ./gradlew test --no-daemon
+
+      - uses: pnpm/action-setup@v6
+        with:
+          version: 10
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Typecheck
+        run: pnpm run typecheck

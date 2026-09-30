@@ -1,0 +1,113 @@
+# Deploys a release tag: tests it, deploys the API to the Oracle VM, waits for
+# it to report the new version, then deploys the React app to Vercel.
+#
+# Triggered by publishing a release by hand, by auto-release.yml after each
+# merge to main (a release created with the workflow token can't trigger
+# `release` itself, so that workflow calls this one), or by hand from
+# Actions → Release → Run workflow to redeploy or roll back to an existing tag.
+name: Release
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Release tag to deploy
+        required: true
+  workflow_call:
+    inputs:
+      tag:
+        type: string
+        required: true
+      tested:
+        description: The caller already ran the tests on this commit
+        type: boolean
+        default: false
+
+# One production deploy at a time; a newer release waits for the current one.
+concurrency:
+  group: production
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  TAG: ${{ inputs.tag || github.event.release.tag_name }}
+  API_URL: https://codenameapi.tkcodes.xyz
+
+jobs:
+  test:
+    if: ${{ !inputs.tested }}
+    uses: ./.github/workflows/test.yml
+    with:
+      ref: refs/tags/${{ inputs.tag || github.event.release.tag_name }}
+
+  deploy-api:
+    needs: test
+    # Runs when the tests passed here, or were skipped because the caller ran them.
+    if: ${{ !failure() && !cancelled() }}
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - name: Deploy to the Oracle VM
+        env:
+          SSH_KEY: ${{ secrets.ORACLE_SSH_KEY }}
+          KNOWN_HOSTS: ${{ secrets.ORACLE_KNOWN_HOSTS }}
+          HOST: ${{ secrets.ORACLE_HOST }}
+        run: |
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/deploy_key && chmod 600 ~/.ssh/deploy_key
+          printf '%s\n' "$KNOWN_HOSTS" > ~/.ssh/known_hosts
+          # The key's forced command on the VM (ci-deploy.sh) receives the tag as its only input.
+          ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=yes -o BatchMode=yes -o ServerAliveInterval=30 "ubuntu@$HOST" "$TAG"
+
+      - name: Wait for the new version to serve
+        run: |
+          for _ in $(seq 1 36); do
+            body="$(curl -fsS "$API_URL/api/healthz" || true)"
+            if [ "$(jq -r .version <<< "${body:-null}" 2>/dev/null)" = "$TAG" ]; then
+              echo "API is serving $TAG"
+              exit 0
+            fi
+            echo "Waiting for $TAG (got: ${body:-no response})"
+            sleep 5
+          done
+          echo "::error::The API did not report $TAG within 3 minutes"
+          exit 1
+
+  # After the API, so the new frontend never talks to an older API.
+  deploy-web:
+    needs: deploy-api
+    if: ${{ !failure() && !cancelled() }}
+    runs-on: ubuntu-latest
+    environment: production
+    env:
+      VERCEL_ORG_ID: ${{ vars.VERCEL_ORG_ID }}
+      VERCEL_PROJECT_ID: ${{ vars.VERCEL_PROJECT_ID }}
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: refs/tags/${{ env.TAG }}
+
+      - uses: pnpm/action-setup@v6
+        with:
+          version: 10
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+
+      - run: npm install --global vercel@61
+
+      # Pulls the production settings and environment variables (VITE_API_URL) from Vercel.
+      - run: vercel pull --yes --environment=production --token="$VERCEL_TOKEN"
+
+      - run: vercel build --prod --token="$VERCEL_TOKEN"
+
+      - name: Deploy
+        run: |
+          url="$(vercel deploy --prebuilt --prod --token="$VERCEL_TOKEN")"
+          echo "Deployed $TAG to $url" >> "$GITHUB_STEP_SUMMARY"
