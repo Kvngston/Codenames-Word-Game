@@ -174,9 +174,9 @@ passwords.
 - **Project ID:** Project → Settings → General.
 - **Team or account ID:** Team Settings → General, labelled *Team ID* or *Vercel ID*.
 - Make sure the project has `VITE_API_URL=https://codenameapi.tkcodes.xyz` for
-  the Production environment. `vercel.json` turns off Vercel's own deploys
-  from `main`, so production only changes through the workflow; preview
-  deploys for other branches still work.
+  the Production environment. `vercel.json` turns off all of Vercel's own
+  Git deploys (production and previews), so the site only changes when the
+  release workflow deploys it after a merge to `main`.
 
 **5. GitHub: create a `production` environment.** Go to Settings →
 Environments → New environment → `production`, and add:
