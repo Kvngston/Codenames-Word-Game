@@ -15,4 +15,8 @@ USER app
 EXPOSE 8080
 # G1 explicitly: with 2 CPUs and a small memory limit the JVM falls back to
 # single-threaded Serial GC, which paused for seconds at a time under load.
-ENTRYPOINT ["java", "-XX:+UseG1GC", "-XX:MaxRAMPercentage=75", "-jar", "/app/app.jar"]
+# Heap at half the container: native memory (thread stacks, malloc arenas,
+# network buffers) grows with connections and needs the rest. At 75% the
+# kernel OOM-killed the app before Java ever saw its own heap run out.
+ENV MALLOC_ARENA_MAX=2
+ENTRYPOINT ["java", "-XX:+UseG1GC", "-XX:MaxRAMPercentage=50", "-XX:MaxDirectMemorySize=256m", "-jar", "/app/app.jar"]

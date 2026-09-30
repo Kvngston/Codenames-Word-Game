@@ -30,4 +30,7 @@ if ! command -v oci > /dev/null && [ ! -x "$HOME/bin/oci" ]; then
   bash -c "$(curl -fsSL https://raw.githubusercontent.com/oracle/oci-cli/master/scripts/install/install.sh)" -s --accept-all-defaults
 fi
 
+echo "==> Installing the keepalive timer so Oracle doesn't reclaim the VM as idle"
+"$(dirname "$0")/keepalive.sh" install
+
 echo "==> Done. Log out and back in so the docker group applies, then follow the README."

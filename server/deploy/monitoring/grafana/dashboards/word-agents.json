@@ -39,7 +39,7 @@
       "gridPos": {
         "x": 0,
         "y": 1,
-        "w": 4,
+        "w": 3,
         "h": 4
       },
       "targets": [
@@ -89,9 +89,9 @@
         "uid": "prometheus"
       },
       "gridPos": {
-        "x": 4,
+        "x": 3,
         "y": 1,
-        "w": 4,
+        "w": 3,
         "h": 4
       },
       "targets": [
@@ -141,9 +141,9 @@
         "uid": "prometheus"
       },
       "gridPos": {
-        "x": 8,
+        "x": 6,
         "y": 1,
-        "w": 4,
+        "w": 3,
         "h": 4
       },
       "targets": [
@@ -193,9 +193,9 @@
         "uid": "prometheus"
       },
       "gridPos": {
-        "x": 12,
+        "x": 9,
         "y": 1,
-        "w": 4,
+        "w": 3,
         "h": 4
       },
       "targets": [
@@ -238,22 +238,22 @@
     },
     {
       "type": "stat",
-      "title": "5xx error rate",
+      "title": "5xx rate",
       "id": 6,
       "datasource": {
         "type": "prometheus",
         "uid": "prometheus"
       },
       "gridPos": {
-        "x": 16,
+        "x": 12,
         "y": 1,
-        "w": 4,
+        "w": 3,
         "h": 4
       },
       "targets": [
         {
           "refId": "A",
-          "expr": "sum(rate(http_server_requests_seconds_count{job=\"word-agents\", status=~\"5..\"}[5m])) / sum(rate(http_server_requests_seconds_count{job=\"word-agents\"}[5m])) or vector(0)",
+          "expr": "(sum(rate(caddy_http_request_duration_seconds_count{job=\"caddy\", server=\"public\", code=~\"5..\"}[5m])) or vector(0)) / sum(rate(caddy_http_request_duration_seconds_count{job=\"caddy\", server=\"public\"}[5m]))",
           "datasource": {
             "type": "prometheus",
             "uid": "prometheus"
@@ -293,7 +293,68 @@
           }
         },
         "overrides": []
-      }
+      },
+      "description": "Share of responses that clients got as 5xx, measured at Caddy. It includes the 502s Caddy returns while the API is down or restarting, which the API can't record itself."
+    },
+    {
+      "type": "stat",
+      "title": "4xx rate",
+      "id": 32,
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 15,
+        "y": 1,
+        "w": 3,
+        "h": 4
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "(sum(rate(http_server_requests_seconds_count{job=\"word-agents\", status=~\"4..\"}[5m])) or vector(0)) / sum(rate(http_server_requests_seconds_count{job=\"word-agents\"}[5m]))",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "instant": true
+        }
+      ],
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "value"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 0.1
+              },
+              {
+                "color": "red",
+                "value": 0.25
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "description": "Share of API responses that were 4xx. Some are expected: 409 for an illegal move, 429 for a rate limit."
     },
     {
       "type": "stat",
@@ -304,9 +365,9 @@
         "uid": "prometheus"
       },
       "gridPos": {
-        "x": 20,
+        "x": 18,
         "y": 1,
-        "w": 2,
+        "w": 3,
         "h": 4
       },
       "targets": [
@@ -363,9 +424,9 @@
         "uid": "prometheus"
       },
       "gridPos": {
-        "x": 22,
+        "x": 21,
         "y": 1,
-        "w": 2,
+        "w": 3,
         "h": 4
       },
       "targets": [
@@ -1194,13 +1255,114 @@
       }
     },
     {
+      "type": "timeseries",
+      "title": "4xx by endpoint and status",
+      "id": 33,
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 56,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (uri, status) (rate(http_server_requests_seconds_count{job=\"word-agents\", status=~\"4..\"}[$__rate_interval]))",
+          "legendFormat": "{{status}} {{uri}}",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          }
+        }
+      ],
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps",
+          "custom": {
+            "fillOpacity": 5,
+            "lineWidth": 2,
+            "showPoints": "never",
+            "stacking": {
+              "mode": "none"
+            }
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "5xx seen by clients (Caddy)",
+      "id": 34,
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 56,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (code) (rate(caddy_http_request_duration_seconds_count{job=\"caddy\", server=\"public\", code=~\"5..\"}[$__rate_interval]))",
+          "legendFormat": "{{code}}",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          }
+        }
+      ],
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps",
+          "custom": {
+            "fillOpacity": 5,
+            "lineWidth": 2,
+            "showPoints": "never",
+            "stacking": {
+              "mode": "none"
+            }
+          }
+        },
+        "overrides": []
+      },
+      "description": "502s and 503s here with nothing under \"5xx by endpoint and exception\" mean the API was unreachable, for example restarting or OOM-killed."
+    },
+    {
       "type": "row",
       "title": "Server",
       "id": 25,
       "collapsed": false,
       "gridPos": {
         "x": 0,
-        "y": 56,
+        "y": 64,
         "w": 24,
         "h": 1
       },
@@ -1216,7 +1378,7 @@
       },
       "gridPos": {
         "x": 0,
-        "y": 57,
+        "y": 65,
         "w": 8,
         "h": 8
       },
@@ -1275,7 +1437,7 @@
       },
       "gridPos": {
         "x": 8,
-        "y": 57,
+        "y": 65,
         "w": 8,
         "h": 8
       },
@@ -1343,7 +1505,7 @@
       },
       "gridPos": {
         "x": 16,
-        "y": 57,
+        "y": 65,
         "w": 8,
         "h": 8
       },
@@ -1411,7 +1573,7 @@
       },
       "gridPos": {
         "x": 0,
-        "y": 65,
+        "y": 73,
         "w": 8,
         "h": 8
       },
@@ -1479,7 +1641,7 @@
       },
       "gridPos": {
         "x": 8,
-        "y": 65,
+        "y": 73,
         "w": 8,
         "h": 8
       },
@@ -1538,7 +1700,7 @@
       },
       "gridPos": {
         "x": 16,
-        "y": 65,
+        "y": 73,
         "w": 8,
         "h": 8
       },

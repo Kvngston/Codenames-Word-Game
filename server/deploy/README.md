@@ -213,8 +213,20 @@ back.
 
 Oracle can reclaim Always Free VMs that stay idle for 7 days: CPU, network and
 memory all under 20% utilisation. A party-game server is idle most of the time.
-To avoid this, **upgrade the account to Pay As You Go**. Always Free resources
-stay free and are no longer reclaimed; set a budget alert
+
+`setup-vm.sh` installs `keepalive.sh`, a systemd timer that burns every core
+for 10 minutes each hour. That keeps the 95th-percentile CPU well above 20%.
+It runs at the idle scheduling class, so it only uses CPU nothing else wants.
+To install it on a VM that's already set up:
+
+```bash
+./keepalive.sh install
+systemctl list-timers oci-keepalive.timer   # next run
+journalctl -u oci-keepalive                  # past runs
+```
+
+The sure way is to **upgrade the account to Pay As You Go**. Always Free
+resources stay free and are never reclaimed; set a budget alert
 (Billing → Budgets) so any accidental paid usage emails you.
 
 ## Useful commands

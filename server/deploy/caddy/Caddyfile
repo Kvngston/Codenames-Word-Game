@@ -1,6 +1,21 @@
 # Caddy gets and renews the Let's Encrypt certificate for API_DOMAIN itself,
 # and proxies WebSocket upgrades for /ws without extra config.
 # The API's metrics live on app:8081, which is deliberately not proxied.
+{
+	# Count every response by status code, including the 502s Caddy returns
+	# while the API is down, which the API can't record itself.
+	metrics
+	servers :443 {
+		name public
+	}
+}
+
+# Caddy's own metrics, for Prometheus over the Compose network. This port isn't
+# published, and Caddy's admin API stays on localhost inside the container.
+:2020 {
+	metrics
+}
+
 {$API_DOMAIN} {
 	encode zstd gzip
 	handle /grafana* {
