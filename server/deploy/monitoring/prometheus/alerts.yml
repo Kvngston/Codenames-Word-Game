@@ -9,15 +9,16 @@ groups:
         annotations:
           summary: The API has not answered a metrics scrape for 2 minutes.
 
+      # Measured at Caddy, so 502s while the API is down or restarting count too.
       - alert: HighServerErrorRate
         expr: |
-          sum(rate(http_server_requests_seconds_count{job="word-agents", status=~"5.."}[5m]))
-            / sum(rate(http_server_requests_seconds_count{job="word-agents"}[5m])) > 0.05
-          and sum(rate(http_server_requests_seconds_count{job="word-agents"}[5m])) > 0.1
+          sum(rate(caddy_http_request_duration_seconds_count{job="caddy", server="public", code=~"5.."}[5m]))
+            / sum(rate(caddy_http_request_duration_seconds_count{job="caddy", server="public"}[5m])) > 0.05
+          and sum(rate(caddy_http_request_duration_seconds_count{job="caddy", server="public"}[5m])) > 0.1
         for: 5m
         labels: { severity: critical }
         annotations:
-          summary: "More than 5% of API requests are failing with 5xx ({{ $value | humanizePercentage }})."
+          summary: "More than 5% of requests are failing with 5xx ({{ $value | humanizePercentage }})."
 
       - alert: ErrorsLogged
         expr: sum(increase(logback_events_total{job="word-agents", level="error"}[10m])) > 5
