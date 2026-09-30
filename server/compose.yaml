@@ -1,0 +1,30 @@
+# Local MySQL and RabbitMQ (with STOMP) for running the server on your machine:
+#   docker compose up -d && ./gradlew bootRun
+services:
+  mysql:
+    image: mysql:8.4
+    environment:
+      MYSQL_DATABASE: wordagents
+      MYSQL_USER: wordagents
+      MYSQL_PASSWORD: wordagents
+      MYSQL_ROOT_PASSWORD: root
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql-data:/var/lib/mysql
+
+  rabbitmq:
+    image: rabbitmq:4.1-management
+    configs:
+      - source: rabbit-plugins
+        target: /etc/rabbitmq/enabled_plugins
+    ports:
+      - "61613:61613"
+      - "15672:15672"
+
+configs:
+  rabbit-plugins:
+    content: "[rabbitmq_management,rabbitmq_stomp]."
+
+volumes:
+  mysql-data:

@@ -1,0 +1,33 @@
+server:
+  port: ${PORT:8080}
+  shutdown: graceful
+
+spring:
+  application:
+    name: word-agents
+  datasource:
+    url: ${DATABASE_URL:jdbc:mysql://localhost:3306/wordagents}
+    username: ${DATABASE_USERNAME:wordagents}
+    password: ${DATABASE_PASSWORD:wordagents}
+  jpa:
+    open-in-view: false
+    hibernate:
+      # Liquibase owns the schema; Hibernate only checks that entities match it.
+      ddl-auto: validate
+    properties:
+      # Liquibase creates BOOLEAN columns as MySQL's TINYINT(1); map booleans to match.
+      hibernate.type.preferred_boolean_jdbc_type: TINYINT
+  liquibase:
+    change-log: classpath:db/changelog/db.changelog-master.yaml
+
+app:
+  # Comma-separated origins allowed to call the API and open the WebSocket,
+  # e.g. https://your-app.vercel.app
+  allowed-origins: ${ALLOWED_ORIGINS:http://localhost:5173,http://localhost:22021}
+  room-idle-hours: 24
+  stomp-relay:
+    host: ${RABBITMQ_HOST:localhost}
+    port: ${RABBITMQ_STOMP_PORT:61613}
+    login: ${RABBITMQ_USERNAME:guest}
+    passcode: ${RABBITMQ_PASSWORD:guest}
+    virtual-host: ${RABBITMQ_VHOST:/}

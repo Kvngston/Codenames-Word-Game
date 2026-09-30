@@ -1,0 +1,102 @@
+# Clue numbers and guess budgets use NULL for "unlimited". A room has an active
+# clue only when clue_word is set, and a clue under review only when review_word is set.
+databaseChangeLog:
+  - changeSet:
+      id: 001-create-rooms
+      author: word-agents
+      changes:
+        - createTable:
+            tableName: rooms
+            columns:
+              - column: { name: code, type: VARCHAR(8), constraints: { primaryKey: true } }
+              - column: { name: host_player_id, type: VARCHAR(36), constraints: { nullable: false } }
+              - column: { name: red_name, type: VARCHAR(18), constraints: { nullable: false } }
+              - column: { name: blue_name, type: VARCHAR(18), constraints: { nullable: false } }
+              - column: { name: starting_team, type: VARCHAR(8), constraints: { nullable: false } }
+              - column: { name: active_team, type: VARCHAR(8), constraints: { nullable: false } }
+              - column: { name: phase, type: VARCHAR(12), constraints: { nullable: false } }
+              - column: { name: clue_team, type: VARCHAR(8) }
+              - column: { name: clue_word, type: VARCHAR(32) }
+              - column: { name: clue_number, type: INT }
+              - column: { name: review_word, type: VARCHAR(32) }
+              - column: { name: review_number, type: INT }
+              - column: { name: guesses_remaining, type: INT }
+              - column: { name: turn_guesses, type: INT, defaultValueNumeric: 0, constraints: { nullable: false } }
+              - column: { name: winner, type: VARCHAR(8) }
+              - column: { name: result_message, type: VARCHAR(255), defaultValue: "", constraints: { nullable: false } }
+              - column: { name: last_event, type: VARCHAR(255), defaultValue: "", constraints: { nullable: false } }
+              - column: { name: penalty_reveal_pending, type: BOOLEAN, defaultValueBoolean: false, constraints: { nullable: false } }
+              - column: { name: revision, type: BIGINT, defaultValueNumeric: 0, constraints: { nullable: false } }
+              - column: { name: updated_at, type: "DATETIME(6)", constraints: { nullable: false } }
+        - createIndex:
+            tableName: rooms
+            indexName: idx_rooms_updated_at
+            columns:
+              - column: { name: updated_at }
+
+  - changeSet:
+      id: 001-create-players
+      author: word-agents
+      changes:
+        - createTable:
+            tableName: players
+            columns:
+              - column: { name: id, type: VARCHAR(36), constraints: { primaryKey: true } }
+              - column:
+                  name: room_code
+                  type: VARCHAR(8)
+                  constraints:
+                    nullable: false
+                    foreignKeyName: fk_players_room
+                    references: rooms(code)
+                    deleteCascade: true
+              # SHA-256 of the seat token; the token itself is only ever held by the player's device.
+              - column: { name: token_hash, type: VARCHAR(64), constraints: { nullable: false, unique: true, uniqueConstraintName: uq_players_token_hash } }
+              - column: { name: name, type: VARCHAR(24), constraints: { nullable: false } }
+              - column: { name: team, type: VARCHAR(8) }
+              - column: { name: seat, type: VARCHAR(12) }
+              - column: { name: join_order, type: INT, constraints: { nullable: false } }
+
+  - changeSet:
+      id: 001-create-cards
+      author: word-agents
+      changes:
+        - createTable:
+            tableName: cards
+            columns:
+              - column: { name: id, type: BIGINT, autoIncrement: true, constraints: { primaryKey: true } }
+              - column:
+                  name: room_code
+                  type: VARCHAR(8)
+                  constraints:
+                    nullable: false
+                    foreignKeyName: fk_cards_room
+                    references: rooms(code)
+                    deleteCascade: true
+              # Public id sent to clients; regenerated on every deal.
+              - column: { name: card_id, type: VARCHAR(36), constraints: { nullable: false, unique: true, uniqueConstraintName: uq_cards_card_id } }
+              - column: { name: position, type: INT, constraints: { nullable: false } }
+              - column: { name: word, type: VARCHAR(32), constraints: { nullable: false } }
+              - column: { name: role, type: VARCHAR(10), constraints: { nullable: false } }
+              - column: { name: revealed, type: BOOLEAN, defaultValueBoolean: false, constraints: { nullable: false } }
+
+  - changeSet:
+      id: 001-create-clues
+      author: word-agents
+      changes:
+        - createTable:
+            tableName: clues
+            columns:
+              - column: { name: id, type: BIGINT, autoIncrement: true, constraints: { primaryKey: true } }
+              - column:
+                  name: room_code
+                  type: VARCHAR(8)
+                  constraints:
+                    nullable: false
+                    foreignKeyName: fk_clues_room
+                    references: rooms(code)
+                    deleteCascade: true
+              - column: { name: turn, type: INT, constraints: { nullable: false } }
+              - column: { name: team, type: VARCHAR(8), constraints: { nullable: false } }
+              - column: { name: word, type: VARCHAR(32), constraints: { nullable: false } }
+              - column: { name: clue_number, type: INT }
