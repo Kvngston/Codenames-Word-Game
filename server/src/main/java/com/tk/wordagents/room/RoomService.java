@@ -5,6 +5,7 @@ import com.tk.wordagents.game.GameRules;
 import com.tk.wordagents.game.Phase;
 import com.tk.wordagents.game.Player;
 import com.tk.wordagents.game.Room;
+import com.tk.wordagents.pack.PackService;
 import com.tk.wordagents.room.RoomViews.RoomView;
 import java.security.SecureRandom;
 import java.util.Locale;
@@ -26,12 +27,14 @@ public class RoomService {
     private final PlayerRepository players;
     private final Presence presence;
     private final RoomBroadcaster broadcaster;
+    private final PackService packs;
 
-    RoomService(RoomRepository rooms, PlayerRepository players, Presence presence, RoomBroadcaster broadcaster) {
+    RoomService(RoomRepository rooms, PlayerRepository players, Presence presence, RoomBroadcaster broadcaster, PackService packs) {
         this.rooms = rooms;
         this.players = players;
         this.presence = presence;
         this.broadcaster = broadcaster;
+        this.packs = packs;
     }
 
     @Transactional
@@ -41,7 +44,7 @@ public class RoomService {
             code = newCode();
         } while (rooms.existsById(code));
         Room room = new Room(code);
-        GameRules.deal(room);
+        GameRules.deal(room, packs);
         String token = SeatTokens.generate();
         Player host = addPlayer(room, hostName, token);
         room.setHostPlayerId(host.getId());
@@ -69,7 +72,7 @@ public class RoomService {
     public RoomView act(String code, String token, GameAction action) {
         Room room = lock(code);
         Player player = authenticate(room, token);
-        GameRules.apply(room, player.getId(), action);
+        GameRules.apply(room, player.getId(), action, packs);
         changed(room);
         return RoomViews.viewFor(room, player.getId(), presence::isOnline);
     }

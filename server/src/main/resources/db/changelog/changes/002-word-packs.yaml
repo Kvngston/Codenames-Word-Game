@@ -1,0 +1,28 @@
+# Rooms deal from a list of packs (built-in ids like "movies", or saved-pack
+# codes) plus the host's own words. Saved packs outlive rooms; the edit token
+# is held by the device that made the pack, and only its hash is stored.
+databaseChangeLog:
+  - changeSet:
+      id: 002-room-word-sources
+      author: word-agents
+      changes:
+        - addColumn:
+            tableName: rooms
+            columns:
+              - column: { name: word_packs, type: VARCHAR(160), defaultValue: "classic", constraints: { nullable: false } }
+              - column: { name: custom_words, type: TEXT }
+              - column: { name: pool_size, type: INT, defaultValueNumeric: 0, constraints: { nullable: false } }
+
+  - changeSet:
+      id: 002-create-word-packs
+      author: word-agents
+      changes:
+        - createTable:
+            tableName: word_packs
+            columns:
+              - column: { name: code, type: VARCHAR(8), constraints: { primaryKey: true } }
+              - column: { name: name, type: VARCHAR(40), constraints: { nullable: false } }
+              - column: { name: words, type: TEXT, constraints: { nullable: false } }
+              - column: { name: edit_token_hash, type: VARCHAR(64), constraints: { nullable: false } }
+              - column: { name: created_at, type: "DATETIME(6)", constraints: { nullable: false } }
+              - column: { name: updated_at, type: "DATETIME(6)", constraints: { nullable: false } }

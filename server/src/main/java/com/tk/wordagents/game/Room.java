@@ -87,6 +87,18 @@ public class Room {
     @Column(name = "penalty_reveal_pending", nullable = false)
     private boolean penaltyRevealPending;
 
+    /** Comma-separated pack ids and saved-pack codes the board is dealt from. */
+    @Column(name = "word_packs", nullable = false)
+    private String wordPacks = WordPacks.DEFAULT_ID;
+
+    /** The host's own words, one per line; they go on the board before pack words. */
+    @Column(name = "custom_words", columnDefinition = "TEXT")
+    private String customWords;
+
+    /** How many distinct words the last deal drew from. */
+    @Column(name = "pool_size", nullable = false)
+    private int poolSize;
+
     /** Bumped on every change so clients can ignore out-of-order views. */
     @Column(nullable = false)
     private long revision;
@@ -153,6 +165,25 @@ public class Room {
     public void setGuessesRemaining(Count count) {
         guessesRemaining = count.value();
     }
+
+    public List<String> getWordPacks() {
+        return wordPacks == null || wordPacks.isBlank() ? List.of() : List.of(wordPacks.split(","));
+    }
+
+    public void setWordPacks(List<String> packs) {
+        wordPacks = String.join(",", packs);
+    }
+
+    public List<String> getCustomWords() {
+        return customWords == null || customWords.isBlank() ? List.of() : customWords.lines().toList();
+    }
+
+    public void setCustomWords(List<String> words) {
+        customWords = words.isEmpty() ? null : String.join("\n", words);
+    }
+
+    public int getPoolSize() { return poolSize; }
+    void setPoolSize(int poolSize) { this.poolSize = poolSize; }
 
     public void touch() {
         revision += 1;

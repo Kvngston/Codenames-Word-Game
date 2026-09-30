@@ -17,6 +17,7 @@ import java.util.concurrent.ExecutionException;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Predicate;
+import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 import java.util.stream.StreamSupport;
 import org.junit.jupiter.api.AfterEach;
@@ -309,5 +310,79 @@ class RoomFlowIntegrationTest {
         assertThat(view.get("you").get("isHost").asBoolean()).as("host passes to the next player").isTrue();
         call("DELETE", "/rooms/" + host.code() + "/players/me", null, guest.token());
         assertThat(call("GET", "/rooms/" + host.code() + "/view", null, guest.token()).status()).isEqualTo(404);
+    }
+
+    @Test
+    void savedPacksAreSharedByCodeAndOnlyTheirMakerCanChangeThem() throws Exception {
+        Response catalog = call("GET", "/packs", null, null);
+        assertThat(catalog.status()).isEqualTo(200);
+        assertThat(catalog.body().get(0).get("id").asString()).isEqualTo("classic");
+        assertThat(catalog.body().size()).isGreaterThan(1);
+
+        Response tiny = call("POST", "/packs", "{\"name\":\"Tiny\",\"words\":[\"one\",\"two\"]}", null);
+        assertThat(tiny.status()).isEqualTo(400);
+        assertThat(tiny.body().get("error").asString()).contains("at least 25");
+
+        String words = IntStream.rangeClosed(1, 30).mapToObj(i -> "\"office " + i + "\"").collect(Collectors.joining(","));
+        Response created = call("POST", "/packs", "{\"name\":\" The  Office \",\"words\":[" + words + "]}", null);
+        assertThat(created.status()).isEqualTo(201);
+        String code = created.body().get("code").asString();
+        String editToken = created.body().get("editToken").asString();
+
+        Response shared = call("GET", "/packs/" + code.toLowerCase(), null, null);
+        assertThat(shared.status()).isEqualTo(200);
+        assertThat(shared.body().get("name").asString()).isEqualTo("The Office");
+        assertThat(shared.body().get("words").size()).isEqualTo(30);
+        assertThat(shared.body().get("words").get(0).asString()).isEqualTo("OFFICE 1");
+        assertThat(shared.body().toString()).doesNotContain(editToken);
+
+        String rename = "{\"name\":\"Office Party\",\"words\":[" + words + "]}";
+        assertThat(call("PUT", "/packs/" + code, rename, null).status()).isEqualTo(403);
+        assertThat(call("PUT", "/packs/" + code, rename, "not-the-token").status()).isEqualTo(403);
+        assertThat(call("PUT", "/packs/" + code, rename, editToken).body().get("name").asString()).isEqualTo("Office Party");
+
+        Seat host = create("Ada");
+        Seat guest = join(host.code(), "Ben");
+        Response set = act(host, "{\"type\":\"set-words\",\"packs\":[\"" + code + "\"],\"customWords\":[\"zebra\"]}");
+        assertThat(set.status()).isEqualTo(200);
+        assertThat(set.body().get("words").get("packs").get(0).asString()).isEqualTo(code);
+        assertThat(set.body().get("words").get("customWords").get(0).asString()).isEqualTo("ZEBRA");
+        assertThat(set.body().get("words").get("poolSize").asInt()).isEqualTo(31);
+        assertThat(cards(set.body())).anyMatch(card -> card.get("word").asString().equals("ZEBRA"));
+
+        JsonNode guestView = call("GET", "/rooms/" + host.code() + "/view", null, guest.token()).body();
+        assertThat(guestView.get("words").get("customWords").isNull()).as("custom words stay a surprise").isTrue();
+        assertThat(guestView.get("words").get("customCount").asInt()).isEqualTo(1);
+        assertThat(act(guest, "{\"type\":\"set-words\",\"packs\":[\"classic\"],\"customWords\":[]}").status()).isEqualTo(409);
+        assertThat(act(host, "{\"type\":\"set-words\",\"packs\":[\"ZZZZZZ\"],\"customWords\":[]}").body().get("error").asString())
+            .contains("no word pack");
+
+        assertThat(call("DELETE", "/packs/" + code, null, guest.token()).status()).isEqualTo(403);
+        assertThat(call("DELETE", "/packs/" + code, null, editToken).status()).isEqualTo(204);
+        assertThat(call("GET", "/packs/" + code, null, null).status()).isEqualTo(404);
+        // A room still pointing at the deleted pack can deal a new game.
+        assertThat(act(host, "{\"type\":\"new-game\"}").status()).isEqualTo(200);
+    }
+
+    @Test
+    void creatingPacksIsRateLimitedPerClient() throws Exception {
+        String words = IntStream.rangeClosed(1, 25).mapToObj(i -> "\"w" + i + "\"").collect(Collectors.joining(","));
+        // Caddy's X-Forwarded-For is trusted from a local proxy, so this is its own client and bucket.
+        HttpRequest create = HttpRequest.newBuilder(URI.create("http://localhost:" + port + "/api/packs"))
+            .POST(HttpRequest.BodyPublishers.ofString("{\"name\":\"Spam\",\"words\":[" + words + "]}"))
+            .header("Content-Type", "application/json")
+            .header("Origin", "http://localhost:5173")
+            .header("X-Forwarded-For", "203.0.113.9")
+            .build();
+        for (int i = 0; i < 5; i++) assertThat(http.send(create, HttpResponse.BodyHandlers.ofString()).statusCode()).isEqualTo(201);
+
+        HttpResponse<String> refused = http.send(create, HttpResponse.BodyHandlers.ofString());
+        assertThat(refused.statusCode()).isEqualTo(429);
+        assertThat(JSON.readTree(refused.body()).get("error").asString()).contains("Too many new word packs");
+        assertThat(refused.headers().firstValue("Retry-After")).hasValueSatisfying(value -> assertThat(Long.parseLong(value)).isPositive());
+        assertThat(refused.headers().firstValue("Access-Control-Allow-Origin")).as("the browser can read the error").contains("http://localhost:5173");
+
+        // Other clients, and other kinds of request, are unaffected.
+        assertThat(call("POST", "/packs", "{\"name\":\"Mine\",\"words\":[" + words + "]}", null).status()).isEqualTo(201);
     }
 }

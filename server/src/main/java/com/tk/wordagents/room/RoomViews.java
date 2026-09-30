@@ -26,6 +26,9 @@ public final class RoomViews {
 
     public record ClueRecord(Team team, String word, Count number, int turn) {}
 
+    /** Where the board's words come from. Custom words are only sent to the host, so they stay a surprise. */
+    public record WordsView(List<String> packs, List<String> customWords, int customCount, int poolSize) {}
+
     public record RoomView(
         String code,
         long version,
@@ -47,6 +50,7 @@ public final class RoomViews {
         boolean penaltyRevealPending,
         boolean reviewPending,
         ActiveClue review,
+        WordsView words,
         String lastEvent) {}
 
     /**
@@ -59,6 +63,7 @@ public final class RoomViews {
         boolean isSpymaster = viewer.getSeat() == Seat.SPYMASTER;
         boolean seesMap = isSpymaster && room.getPhase() != Phase.LOBBY;
         boolean gameOver = room.getPhase() == Phase.FINISHED;
+        boolean isHost = room.getHostPlayerId().equals(viewerId);
         List<PlayerView> players = room.getPlayers().stream().map(player -> playerView(room, player, isOnline)).toList();
 
         return new RoomView(
@@ -85,6 +90,7 @@ public final class RoomViews {
             room.isPenaltyRevealPending(),
             room.pendingReview().isPresent(),
             isSpymaster ? room.pendingReview().orElse(null) : null,
+            new WordsView(room.getWordPacks(), isHost ? room.getCustomWords() : null, room.getCustomWords().size(), room.getPoolSize()),
             room.getLastEvent());
     }
 

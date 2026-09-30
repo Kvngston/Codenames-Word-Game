@@ -4,10 +4,12 @@ import java.security.SecureRandom;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
 import java.util.Random;
+import java.util.Set;
 import java.util.UUID;
 
 /**
@@ -17,16 +19,18 @@ import java.util.UUID;
 public final class GameRules {
 
     public static final int BOARD_SIZE = 25;
+    public static final int MAX_CUSTOM_WORDS = 200;
+    public static final int MAX_PACKS = 10;
     private static final Random RANDOM = new SecureRandom();
 
     private GameRules() {}
 
     /** Deals a fresh board and resets the room to the lobby. Seats are kept. */
-    public static void deal(Room room) {
-        deal(room, RANDOM);
+    public static void deal(Room room, WordLibrary library) {
+        deal(room, library, RANDOM);
     }
 
-    static void deal(Room room, Random random) {
+    static void deal(Room room, WordLibrary library, Random random) {
         Team starting = random.nextBoolean() ? Team.RED : Team.BLUE;
         List<CardRole> roles = new ArrayList<>();
         for (int i = 0; i < 9; i++) roles.add(starting.cardRole());
@@ -34,8 +38,7 @@ public final class GameRules {
         for (int i = 0; i < 7; i++) roles.add(CardRole.NEUTRAL);
         roles.add(CardRole.ASSASSIN);
         Collections.shuffle(roles, random);
-        List<String> words = new ArrayList<>(Words.ALL);
-        Collections.shuffle(words, random);
+        List<String> words = drawWords(room, library, random);
 
         List<Card> cards = room.getCards();
         for (int position = cards.size(); position < BOARD_SIZE; position++) cards.add(new Card(room, position));
@@ -56,6 +59,42 @@ public final class GameRules {
         room.setResultMessage("");
         room.setPenaltyRevealPending(false);
         room.setLastEvent("");
+    }
+
+    /**
+     * The room's custom words always make the board (up to 25); pack words
+     * fill the rest. The result is shuffled so custom words land anywhere.
+     */
+    static List<String> drawWords(Room room, WordLibrary library, Random random) {
+        List<String> custom = new ArrayList<>(room.getCustomWords());
+        Set<String> packWords = packWords(room.getWordPacks(), custom, library);
+        // A saved pack may have been deleted or trimmed since it was picked; never deal a short board.
+        if (custom.size() + packWords.size() < BOARD_SIZE) {
+            WordPacks.defaultPack().words().stream().filter(word -> !custom.contains(word)).forEach(packWords::add);
+        }
+        List<String> rest = new ArrayList<>(packWords);
+        Collections.shuffle(custom, random);
+        Collections.shuffle(rest, random);
+        room.setPoolSize(custom.size() + rest.size());
+
+        List<String> board = new ArrayList<>(custom.subList(0, Math.min(custom.size(), BOARD_SIZE)));
+        board.addAll(rest.subList(0, BOARD_SIZE - board.size()));
+        Collections.shuffle(board, random);
+        return board;
+    }
+
+    /** Every distinct word in these packs that isn't already a custom word. Missing packs are skipped. */
+    private static Set<String> packWords(List<String> packs, List<String> custom, WordLibrary library) {
+        Set<String> words = new LinkedHashSet<>();
+        packs.forEach(id -> library.words(id).ifPresent(words::addAll));
+        custom.forEach(words::remove);
+        return words;
+    }
+
+    /** Built-in pack ids are lower case, saved-pack codes upper case. */
+    private static String packKey(String raw) {
+        String id = raw == null ? "" : raw.trim();
+        return WordPacks.find(id).map(WordPacks.Pack::id).orElse(id.toUpperCase(Locale.ROOT));
     }
 
     public static int remaining(Room room, Team team) {
@@ -96,7 +135,7 @@ public final class GameRules {
     }
 
     /** Applies one player's action to the room, mutating it in place. */
-    public static void apply(Room room, String playerId, GameAction action) {
+    public static void apply(Room room, String playerId, GameAction action, WordLibrary library) {
         Player player = room.player(playerId).orElseThrow(() -> new GameException("You are not in this room."));
         Team active = room.getActiveTeam();
         boolean isHost = room.getHostPlayerId().equals(player.getId());
@@ -133,6 +172,29 @@ public final class GameRules {
                 String clean = name == null ? "" : name.trim();
                 if (clean.length() > 18) clean = clean.substring(0, 18);
                 room.setTeamName(team, clean.isEmpty() ? (team == Team.RED ? "Red" : "Blue") : clean);
+            }
+
+            case GameAction.SetWords(List<String> rawPacks, List<String> rawCustom) -> {
+                ensure(isHost, "Only the host can choose the words.");
+                ensure(room.getPhase() == Phase.LOBBY, "The word list is locked once the game starts.");
+                List<String> custom = WordLists.cleanAll(rawCustom == null ? List.of() : rawCustom);
+                ensure(custom.size() <= MAX_CUSTOM_WORDS, "Keep custom words to " + MAX_CUSTOM_WORDS + " or fewer.");
+                List<String> packs = new ArrayList<>();
+                for (String raw : rawPacks == null ? List.<String>of() : rawPacks) {
+                    String id = packKey(raw);
+                    if (id.isEmpty() || packs.contains(id)) continue;
+                    ensure(library.words(id).isPresent(), "There's no word pack with the code " + id + ".");
+                    packs.add(id);
+                }
+                ensure(packs.size() <= MAX_PACKS, "Pick up to " + MAX_PACKS + " packs.");
+                int available = custom.size() + packWords(packs, custom, library).size();
+                ensure(available >= BOARD_SIZE, available == 0
+                    ? "Pick a pack or add some words."
+                    : "That's only " + available + " words. Add " + (BOARD_SIZE - available) + " more, or pick a pack.");
+                room.setWordPacks(packs);
+                room.setCustomWords(custom);
+                deal(room, library);
+                room.setLastEvent("New words are on the table: " + room.getPoolSize() + " in the pool.");
             }
 
             case GameAction.Start() -> {
@@ -236,7 +298,7 @@ public final class GameRules {
 
             case GameAction.NewGame() -> {
                 ensure(isHost, "Only the host can deal a new game.");
-                deal(room);
+                deal(room, library);
                 room.setLastEvent("A fresh word map is on the table. Check your seats, then deal.");
             }
         }
