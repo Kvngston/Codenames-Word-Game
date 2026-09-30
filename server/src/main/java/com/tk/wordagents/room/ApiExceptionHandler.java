@@ -1,7 +1,10 @@
 package com.tk.wordagents.room;
 
+import com.tk.wordagents.config.RateLimitException;
 import com.tk.wordagents.game.GameException;
+import com.tk.wordagents.pack.PackException;
 import java.util.Map;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
@@ -15,6 +18,18 @@ class ApiExceptionHandler {
 
     @ExceptionHandler(RoomException.class)
     ResponseEntity<Map<String, String>> room(RoomException e) {
+        return ResponseEntity.status(e.status()).body(Map.of("error", e.getMessage()));
+    }
+
+    @ExceptionHandler(RateLimitException.class)
+    ResponseEntity<Map<String, String>> tooMany(RateLimitException e) {
+        return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS)
+            .header(HttpHeaders.RETRY_AFTER, String.valueOf(e.retryAfterSeconds()))
+            .body(Map.of("error", e.getMessage()));
+    }
+
+    @ExceptionHandler(PackException.class)
+    ResponseEntity<Map<String, String>> pack(PackException e) {
         return ResponseEntity.status(e.status()).body(Map.of("error", e.getMessage()));
     }
 

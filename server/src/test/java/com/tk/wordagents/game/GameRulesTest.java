@@ -3,7 +3,10 @@ package com.tk.wordagents.game;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import java.util.List;
+import java.util.Optional;
 import java.util.Random;
+import java.util.stream.IntStream;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -16,7 +19,7 @@ class GameRulesTest {
     @BeforeEach
     void setUp() {
         room = new Room("TEST1");
-        GameRules.deal(room, new Random(7));
+        GameRules.deal(room, WordLibrary.BUILT_IN, new Random(7));
         room.setHostPlayerId("red-spy");
         addPlayer("red-spy", Team.RED, Seat.SPYMASTER);
         addPlayer("red-op", Team.RED, Seat.OPERATIVE);
@@ -33,6 +36,18 @@ class GameRulesTest {
         room.getPlayers().add(player);
     }
 
+    private static void apply(Room room, String playerId, GameAction action) {
+        GameRules.apply(room, playerId, action, WordLibrary.BUILT_IN);
+    }
+
+    private static List<String> numbered(String prefix, int count) {
+        return IntStream.rangeClosed(1, count).mapToObj(i -> prefix + i).toList();
+    }
+
+    private List<String> boardWords() {
+        return room.getCards().stream().map(Card::getWord).toList();
+    }
+
     private String spy(Team team) { return team == Team.RED ? "red-spy" : "blue-spy"; }
 
     private String op(Team team) { return team == Team.RED ? "red-op" : "blue-op"; }
@@ -42,7 +57,7 @@ class GameRulesTest {
     }
 
     private void start() {
-        GameRules.apply(room, "red-spy", new GameAction.Start());
+        apply(room, "red-spy", new GameAction.Start());
     }
 
     @Test
@@ -56,7 +71,7 @@ class GameRulesTest {
 
     @Test
     void onlyTheHostStartsAndOnlyWhenSeated() {
-        assertThatThrownBy(() -> GameRules.apply(room, "blue-op", new GameAction.Start())).hasMessageContaining("Only the host");
+        assertThatThrownBy(() -> apply(room, "blue-op", new GameAction.Start())).hasMessageContaining("Only the host");
         room.getPlayers().get(3).setSeat(null);
         room.getPlayers().get(3).setTeam(null);
         assertThatThrownBy(this::start).hasMessageContaining("needs at least one operative");
@@ -64,19 +79,19 @@ class GameRulesTest {
 
     @Test
     void oneSpymasterPerTeam() {
-        assertThatThrownBy(() -> GameRules.apply(room, "red-op", new GameAction.TakeSeat(Team.RED, Seat.SPYMASTER)))
+        assertThatThrownBy(() -> apply(room, "red-op", new GameAction.TakeSeat(Team.RED, Seat.SPYMASTER)))
             .hasMessageContaining("already has a spymaster");
     }
 
     @Test
     void clueOpensGuessingWithNumberPlusOne() {
         start();
-        assertThatThrownBy(() -> GameRules.apply(room, spy(second), new GameAction.GiveClue("ZEBRA", Count.of(2)))).isInstanceOf(GameException.class);
-        assertThatThrownBy(() -> GameRules.apply(room, op(first), new GameAction.GiveClue("ZEBRA", Count.of(2)))).isInstanceOf(GameException.class);
-        assertThatThrownBy(() -> GameRules.apply(room, spy(first), new GameAction.GiveClue("two words", Count.of(2)))).hasMessageContaining("one word");
-        assertThatThrownBy(() -> GameRules.apply(room, spy(first), new GameAction.GiveClue("ZEBRA", Count.of(12)))).hasMessageContaining("0 to 9");
+        assertThatThrownBy(() -> apply(room, spy(second), new GameAction.GiveClue("ZEBRA", Count.of(2)))).isInstanceOf(GameException.class);
+        assertThatThrownBy(() -> apply(room, op(first), new GameAction.GiveClue("ZEBRA", Count.of(2)))).isInstanceOf(GameException.class);
+        assertThatThrownBy(() -> apply(room, spy(first), new GameAction.GiveClue("two words", Count.of(2)))).hasMessageContaining("one word");
+        assertThatThrownBy(() -> apply(room, spy(first), new GameAction.GiveClue("ZEBRA", Count.of(12)))).hasMessageContaining("0 to 9");
 
-        GameRules.apply(room, spy(first), new GameAction.GiveClue("zebra", Count.of(2)));
+        apply(room, spy(first), new GameAction.GiveClue("zebra", Count.of(2)));
         assertThat(room.getPhase()).isEqualTo(Phase.GUESSING);
         assertThat(room.getGuessesRemaining()).isEqualTo(Count.of(3));
         assertThat(room.clue()).contains(new ActiveClue(first, "ZEBRA", Count.of(2)));
@@ -86,21 +101,21 @@ class GameRulesTest {
     @Test
     void zeroAndUnlimitedCluesHaveNoCap() {
         start();
-        GameRules.apply(room, spy(first), new GameAction.GiveClue("ZEBRA", Count.of(0)));
+        apply(room, spy(first), new GameAction.GiveClue("ZEBRA", Count.of(0)));
         assertThat(room.getGuessesRemaining().unlimited()).isTrue();
     }
 
     @Test
     void guessingFollowsTheBudgetAndPassesTheTurn() {
         start();
-        GameRules.apply(room, spy(first), new GameAction.GiveClue("ZEBRA", Count.of(1)));
-        assertThatThrownBy(() -> GameRules.apply(room, op(first), new GameAction.EndTurn())).hasMessageContaining("at least one");
-        assertThatThrownBy(() -> GameRules.apply(room, spy(first), new GameAction.Guess(unrevealed(first.cardRole()).getCardId()))).isInstanceOf(GameException.class);
-        assertThatThrownBy(() -> GameRules.apply(room, op(second), new GameAction.Guess(unrevealed(first.cardRole()).getCardId()))).isInstanceOf(GameException.class);
+        apply(room, spy(first), new GameAction.GiveClue("ZEBRA", Count.of(1)));
+        assertThatThrownBy(() -> apply(room, op(first), new GameAction.EndTurn())).hasMessageContaining("at least one");
+        assertThatThrownBy(() -> apply(room, spy(first), new GameAction.Guess(unrevealed(first.cardRole()).getCardId()))).isInstanceOf(GameException.class);
+        assertThatThrownBy(() -> apply(room, op(second), new GameAction.Guess(unrevealed(first.cardRole()).getCardId()))).isInstanceOf(GameException.class);
 
-        GameRules.apply(room, op(first), new GameAction.Guess(unrevealed(first.cardRole()).getCardId()));
+        apply(room, op(first), new GameAction.Guess(unrevealed(first.cardRole()).getCardId()));
         assertThat(room.getGuessesRemaining()).isEqualTo(Count.of(1));
-        GameRules.apply(room, op(first), new GameAction.Guess(unrevealed(first.cardRole()).getCardId()));
+        apply(room, op(first), new GameAction.Guess(unrevealed(first.cardRole()).getCardId()));
         assertThat(room.getActiveTeam()).isEqualTo(second);
         assertThat(room.getPhase()).isEqualTo(Phase.CLUE);
     }
@@ -108,16 +123,16 @@ class GameRulesTest {
     @Test
     void wrongGuessEndsTheTurn() {
         start();
-        GameRules.apply(room, spy(first), new GameAction.GiveClue("ZEBRA", Count.of(3)));
-        GameRules.apply(room, op(first), new GameAction.Guess(unrevealed(CardRole.NEUTRAL).getCardId()));
+        apply(room, spy(first), new GameAction.GiveClue("ZEBRA", Count.of(3)));
+        apply(room, op(first), new GameAction.Guess(unrevealed(CardRole.NEUTRAL).getCardId()));
         assertThat(room.getActiveTeam()).isEqualTo(second);
     }
 
     @Test
     void assassinHandsTheWinToTheOtherTeam() {
         start();
-        GameRules.apply(room, spy(first), new GameAction.GiveClue("ZEBRA", Count.of(1)));
-        GameRules.apply(room, op(first), new GameAction.Guess(unrevealed(CardRole.ASSASSIN).getCardId()));
+        apply(room, spy(first), new GameAction.GiveClue("ZEBRA", Count.of(1)));
+        apply(room, op(first), new GameAction.Guess(unrevealed(CardRole.ASSASSIN).getCardId()));
         assertThat(room.getPhase()).isEqualTo(Phase.FINISHED);
         assertThat(room.getWinner()).isEqualTo(second);
     }
@@ -126,18 +141,18 @@ class GameRulesTest {
     void questionableClueGoesToTheOpposingSpymaster() {
         start();
         String boardWord = room.getCards().getFirst().getWord().split(" ")[0];
-        GameRules.apply(room, spy(first), new GameAction.GiveClue(boardWord, Count.of(1)));
+        apply(room, spy(first), new GameAction.GiveClue(boardWord, Count.of(1)));
         assertThat(room.pendingReview()).isPresent();
         assertThat(room.getPhase()).isEqualTo(Phase.CLUE);
-        assertThatThrownBy(() -> GameRules.apply(room, spy(first), new GameAction.ReviewClue(false))).hasMessageContaining("Only the");
+        assertThatThrownBy(() -> apply(room, spy(first), new GameAction.ReviewClue(false))).hasMessageContaining("Only the");
 
-        GameRules.apply(room, spy(second), new GameAction.ReviewClue(true));
+        apply(room, spy(second), new GameAction.ReviewClue(true));
         assertThat(room.getActiveTeam()).isEqualTo(second);
         assertThat(room.isPenaltyRevealPending()).isTrue();
-        assertThatThrownBy(() -> GameRules.apply(room, spy(second), new GameAction.PenaltyReveal(unrevealed(first.cardRole()).getCardId())))
+        assertThatThrownBy(() -> apply(room, spy(second), new GameAction.PenaltyReveal(unrevealed(first.cardRole()).getCardId())))
             .hasMessageContaining("must be a");
         Card bonus = unrevealed(second.cardRole());
-        GameRules.apply(room, spy(second), new GameAction.PenaltyReveal(bonus.getCardId()));
+        apply(room, spy(second), new GameAction.PenaltyReveal(bonus.getCardId()));
         assertThat(bonus.isRevealed()).isTrue();
         assertThat(room.isPenaltyRevealPending()).isFalse();
     }
@@ -146,7 +161,7 @@ class GameRulesTest {
     void newGameKeepsSeatsAndReturnsToLobby() {
         start();
         String oldId = room.getCards().getFirst().getCardId();
-        GameRules.apply(room, "red-spy", new GameAction.NewGame());
+        apply(room, "red-spy", new GameAction.NewGame());
         assertThat(room.getPhase()).isEqualTo(Phase.LOBBY);
         assertThat(room.getCards()).hasSize(25).noneMatch(Card::isRevealed);
         assertThat(room.getCards().getFirst().getCardId()).isNotEqualTo(oldId);
@@ -156,11 +171,82 @@ class GameRulesTest {
     @Test
     void seatsLockMidGameExceptLateOperatives() {
         start();
-        assertThatThrownBy(() -> GameRules.apply(room, "red-op", new GameAction.TakeSeat(Team.BLUE, Seat.OPERATIVE))).hasMessageContaining("locked");
+        assertThatThrownBy(() -> apply(room, "red-op", new GameAction.TakeSeat(Team.BLUE, Seat.OPERATIVE))).hasMessageContaining("locked");
         Player late = new Player(room, "late", "hash-late", "late", 9);
         room.getPlayers().add(late);
-        assertThatThrownBy(() -> GameRules.apply(room, "late", new GameAction.TakeSeat(Team.BLUE, Seat.SPYMASTER))).hasMessageContaining("locked");
-        GameRules.apply(room, "late", new GameAction.TakeSeat(Team.BLUE, Seat.OPERATIVE));
+        assertThatThrownBy(() -> apply(room, "late", new GameAction.TakeSeat(Team.BLUE, Seat.SPYMASTER))).hasMessageContaining("locked");
+        apply(room, "late", new GameAction.TakeSeat(Team.BLUE, Seat.OPERATIVE));
         assertThat(late.getSeat()).isEqualTo(Seat.OPERATIVE);
+    }
+
+    @Test
+    void builtInPacksCanEachFillABoard() {
+        assertThat(WordPacks.all()).extracting(WordPacks.Pack::id).doesNotHaveDuplicates().contains(WordPacks.DEFAULT_ID);
+        assertThat(WordPacks.all()).allSatisfy(pack -> assertThat(pack.words()).hasSizeGreaterThanOrEqualTo(GameRules.BOARD_SIZE).doesNotHaveDuplicates());
+    }
+
+    @Test
+    void roomsDealFromTheClassicPackByDefault() {
+        assertThat(room.getWordPacks()).containsExactly(WordPacks.DEFAULT_ID);
+        assertThat(WordPacks.defaultPack().words()).containsAll(boardWords());
+        assertThat(boardWords()).doesNotHaveDuplicates();
+        assertThat(room.getPoolSize()).isEqualTo(WordPacks.defaultPack().words().size());
+    }
+
+    @Test
+    void customWordsAlwaysMakeTheBoardAndPacksFillTheRest() {
+        List<String> custom = numbered("AGENT ", 10);
+        apply(room, "red-spy", new GameAction.SetWords(List.of("Food"), custom));
+        assertThat(room.getWordPacks()).containsExactly("food");
+        assertThat(room.getCustomWords()).isEqualTo(custom);
+        assertThat(boardWords()).hasSize(25).containsAll(custom).doesNotHaveDuplicates();
+        assertThat(boardWords()).filteredOn(word -> !custom.contains(word)).allMatch(WordPacks.find("food").orElseThrow().words()::contains);
+        assertThat(room.getPoolSize()).isEqualTo(10 + WordPacks.find("food").orElseThrow().words().size());
+        assertThat(room.getPhase()).isEqualTo(Phase.LOBBY);
+    }
+
+    @Test
+    void customWordsAloneMustFillTheBoard() {
+        assertThatThrownBy(() -> apply(room, "red-spy", new GameAction.SetWords(List.of(), numbered("W", 10))))
+            .hasMessageContaining("only 10 words. Add 15 more");
+        assertThatThrownBy(() -> apply(room, "red-spy", new GameAction.SetWords(List.of(), List.of()))).hasMessageContaining("Pick a pack");
+        assertThat(room.getWordPacks()).containsExactly(WordPacks.DEFAULT_ID);
+
+        apply(room, "red-spy", new GameAction.SetWords(List.of(), numbered("W", 25)));
+        assertThat(boardWords()).containsExactlyInAnyOrderElementsOf(numbered("W", 25));
+    }
+
+    @Test
+    void customWordsAreCleanedAndChecked() {
+        List<String> messy = new java.util.ArrayList<>(List.of("  scuba   diver ", "SCUBA DIVER", "", "rock'n-roll"));
+        messy.addAll(numbered("w", 23));
+        apply(room, "red-spy", new GameAction.SetWords(List.of(), messy));
+        assertThat(room.getCustomWords()).startsWith("SCUBA DIVER", "ROCK'N-ROLL").hasSize(25);
+        assertThatThrownBy(() -> apply(room, "red-spy", new GameAction.SetWords(List.of("classic"), List.of("<b>bold</b>")))).hasMessageContaining("can't go on a card");
+        assertThatThrownBy(() -> apply(room, "red-spy", new GameAction.SetWords(List.of("classic"), List.of("A".repeat(21))))).hasMessageContaining("too long");
+    }
+
+    @Test
+    void onlyTheHostSetsWordsAndOnlyInTheLobby() {
+        assertThatThrownBy(() -> apply(room, "blue-op", new GameAction.SetWords(List.of("food"), List.of()))).hasMessageContaining("Only the host");
+        start();
+        assertThatThrownBy(() -> apply(room, "red-spy", new GameAction.SetWords(List.of("food"), List.of()))).hasMessageContaining("locked");
+    }
+
+    @Test
+    void savedPacksResolveByCodeAndUnknownPacksAreRejected() {
+        List<String> saved = numbered("SAVED ", 30);
+        WordLibrary library = id -> id.equals("ABC234") ? Optional.of(saved) : WordLibrary.BUILT_IN.words(id);
+        assertThatThrownBy(() -> GameRules.apply(room, "red-spy", new GameAction.SetWords(List.of("NOPE99"), List.of()), library))
+            .hasMessageContaining("no word pack with the code NOPE99");
+
+        GameRules.apply(room, "red-spy", new GameAction.SetWords(List.of("abc234", "ABC234"), List.of()), library);
+        assertThat(room.getWordPacks()).containsExactly("ABC234");
+        assertThat(saved).containsAll(boardWords());
+
+        // The pack is deleted before the next game: the deal falls back to Classic rather than failing.
+        start();
+        apply(room, "red-spy", new GameAction.NewGame());
+        assertThat(boardWords()).hasSize(25).allMatch(WordPacks.defaultPack().words()::contains);
     }
 }

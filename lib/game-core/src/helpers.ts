@@ -13,3 +13,16 @@ export function seatingProblem(players: Pick<PlayerView, 'team' | 'seat'>[], tea
   }
   return null;
 }
+
+export const BOARD_SIZE = 25;
+export const MAX_WORD_LENGTH = 20;
+
+/** Splits pasted text into words: one per line, or separated by commas. Mirrors the server's clean-up. */
+export function parseWords(text: string): string[] {
+  const seen = new Set<string>();
+  for (const raw of text.split(/[\n,;]/)) {
+    const word = raw.trim().replace(/\s+/g, ' ').toUpperCase();
+    if (word) seen.add(word);
+  }
+  return [...seen];
+}

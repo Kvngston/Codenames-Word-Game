@@ -2,6 +2,7 @@ package com.tk.wordagents.game;
 
 import com.fasterxml.jackson.annotation.JsonSubTypes;
 import com.fasterxml.jackson.annotation.JsonTypeInfo;
+import java.util.List;
 
 /** Everything a player can ask the server to do. The JSON {@code type} field picks the variant. */
 @JsonTypeInfo(use = JsonTypeInfo.Id.NAME, property = "type")
@@ -9,6 +10,7 @@ import com.fasterxml.jackson.annotation.JsonTypeInfo;
     @JsonSubTypes.Type(value = GameAction.TakeSeat.class, name = "take-seat"),
     @JsonSubTypes.Type(value = GameAction.LeaveSeat.class, name = "leave-seat"),
     @JsonSubTypes.Type(value = GameAction.RenameTeam.class, name = "rename-team"),
+    @JsonSubTypes.Type(value = GameAction.SetWords.class, name = "set-words"),
     @JsonSubTypes.Type(value = GameAction.Start.class, name = "start"),
     @JsonSubTypes.Type(value = GameAction.GiveClue.class, name = "give-clue"),
     @JsonSubTypes.Type(value = GameAction.ReviewClue.class, name = "review-clue"),
@@ -25,6 +27,9 @@ public sealed interface GameAction {
     record LeaveSeat() implements GameAction {}
 
     record RenameTeam(Team team, String name) implements GameAction {}
+
+    /** Pack ids or saved-pack codes, plus the host's own words. Re-deals the lobby board. */
+    record SetWords(List<String> packs, List<String> customWords) implements GameAction {}
 
     record Start() implements GameAction {}
 

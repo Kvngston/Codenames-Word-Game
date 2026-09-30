@@ -9,6 +9,7 @@ import {
   EyeOff,
   Flag,
   KeyRound,
+  Library,
   LogOut,
   RotateCcw,
   Shield,
@@ -29,6 +30,7 @@ import {
   type Team,
 } from '@workspace/game-core';
 import { createRoom, forgetSeat, joinRoom, leaveRoom, loadSeat, sendAction, useRoom, type Connection, type Seat } from './room-client';
+import { PacksDialog, WordsPanel } from './word-packs';
 
 type ToastMessage = string | null;
 type Act = (action: Action) => Promise<boolean>;
@@ -37,6 +39,12 @@ const BASE = import.meta.env.BASE_URL.replace(/\/$/, '');
 
 function codeFromLocation(): string | null {
   const match = window.location.pathname.slice(BASE.length).match(/^\/room\/([A-Za-z0-9]{4,8})\/?$/);
+  return match ? match[1].toUpperCase() : null;
+}
+
+/** A shared pack link: /pack/CODE opens the pack so it can be saved. */
+function packFromLocation(): string | null {
+  const match = window.location.pathname.slice(BASE.length).match(/^\/pack\/([A-Za-z0-9]{4,8})\/?$/);
   return match ? match[1].toUpperCase() : null;
 }
 
@@ -67,6 +75,8 @@ function App() {
   const [seat, setSeat] = useState<Seat | null>(() => (code ? loadSeat(code) : null));
   const [toast, setToast] = useState<ToastMessage>(null);
   const [rulesOpen, setRulesOpen] = useState(false);
+  const [sharedPack] = useState(packFromLocation);
+  const [packsOpen, setPacksOpen] = useState(sharedPack !== null);
   const { view, connection, accept } = useRoom(seat);
 
   useEffect(() => {
@@ -122,6 +132,12 @@ function App() {
     }
   }
 
+  function closePacks() {
+    setPacksOpen(false);
+    // Leave the shared pack link once it has been looked at.
+    if (packFromLocation()) window.history.replaceState(null, '', `${BASE}/`);
+  }
+
   function abandonSeat() {
     if (code) forgetSeat(code);
     goHome();
@@ -148,6 +164,9 @@ function App() {
               <LogOut size={17} />
             </button>
           )}
+          <button type="button" className="icon-button" aria-label="Word packs" onClick={() => setPacksOpen(true)} data-testid="button-open-packs">
+            <Library size={17} />
+          </button>
           <button type="button" className="icon-button" aria-label="Read the rules" onClick={() => setRulesOpen(true)} data-testid="button-open-rules">
             <BookOpen size={17} />
           </button>
@@ -160,7 +179,7 @@ function App() {
       {seat && connection !== 'lost' && view && (
         <>
           {connection === 'reconnecting' && <ConnectionBanner connection={connection} />}
-          {view.phase === 'lobby' ? <Lobby view={view} act={act} onToast={setToast} /> : <Table view={view} act={act} />}
+          {view.phase === 'lobby' ? <Lobby view={view} act={act} onToast={setToast} onManagePacks={() => setPacksOpen(true)} /> : <Table view={view} act={act} />}
           <div className="sr-only" aria-live="polite" data-testid="status-turn-and-counts">
             {view.teamNames[view.activeTeam]} to act. {view.teamNames.red}: {view.remaining.red} remaining. {view.teamNames.blue}: {view.remaining.blue} remaining.
           </div>
@@ -168,6 +187,7 @@ function App() {
       )}
 
       {rulesOpen && <RulesDialog onClose={() => setRulesOpen(false)} />}
+      {packsOpen && <PacksDialog initialCode={sharedPack} onClose={closePacks} onToast={setToast} />}
       {view && <ReviewDialog view={view} act={act} />}
       {toast && <div className="toast-note" role="status" data-testid="status-toast">{toast}</div>}
     </div>
@@ -278,7 +298,7 @@ function Home({ initialCode, onSeat, onError }: { initialCode: string | null; on
   );
 }
 
-function Lobby({ view, act, onToast }: { view: RoomView; act: Act; onToast: (message: string) => void }) {
+function Lobby({ view, act, onToast, onManagePacks }: { view: RoomView; act: Act; onToast: (message: string) => void; onManagePacks: () => void }) {
   const [names, setNames] = useState(view.teamNames);
   useEffect(() => setNames(view.teamNames), [view.teamNames.red, view.teamNames.blue]);
   const problem = seatingProblem(view.players, view.teamNames);
@@ -365,6 +385,8 @@ function Lobby({ view, act, onToast }: { view: RoomView; act: Act; onToast: (mes
             <div className="player-chips">{unseated.map((player) => <PlayerRow key={player.id} player={player} you={view.you} />)}</div>
           </section>
         )}
+
+        <WordsPanel view={view} act={act} onToast={onToast} onManagePacks={onManagePacks} />
 
         <section className="panel setup-panel lobby-foot">
           <div className="privacy-note">
@@ -516,7 +538,7 @@ function Table({ view, act }: { view: RoomView; act: Act }) {
               <h2 className="side-title">Play again?</h2>
               {you.isHost ? (
                 <>
-                  <p className="turn-copy">A new game deals a fresh set of 25 words and a new secret map. Everyone keeps their seat.</p>
+                  <p className="turn-copy">A new game deals 25 fresh words from the same word list, and a new secret map. Everyone keeps their seat. You can change the words in the lobby.</p>
                   <button type="button" className="primary-button" style={{ width: '100%' }} onClick={() => act({ type: 'new-game' })} data-testid="button-new-game-finished">
                     New game <RotateCcw size={14} />
                   </button>
@@ -638,6 +660,7 @@ function RulesDialog({ onClose }: { onClose: () => void }) {
           <li>A zero or unlimited clue has no numeric cap. Stop after any correct guess if you have already guessed once.</li>
           <li>Find every friendly agent to win. The assassin ends the game immediately for the other team.</li>
           <li>If a clue matches a word on the board, the opposing spymaster decides on their own screen whether it stands.</li>
+          <li>In the lobby, the host picks the word packs and can add the table’s own words. Custom words always make the board.</li>
         </ul>
         <p className="dialog-copy">Only spymasters’ devices receive the secret map, so there’s nothing for operatives to peek at.</p>
         <div className="dialog-actions"><button type="button" className="primary-button" onClick={onClose} data-testid="button-rules-got-it">Got it</button></div>

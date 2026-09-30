@@ -1,6 +1,9 @@
 server:
   port: ${PORT:8080}
   shutdown: graceful
+  # Caddy sets X-Forwarded-For; Tomcat trusts it only from private-network proxies,
+  # so request.getRemoteAddr() is the real client for rate limiting.
+  forward-headers-strategy: native
 
 spring:
   application:
@@ -27,6 +30,15 @@ app:
   # e.g. https://your-app.vercel.app
   allowed-origins: ${ALLOWED_ORIGINS:http://localhost:5173,http://localhost:22021}
   room-idle-hours: 24
+  # Per client IP: up to `burst` requests at once, then one more `every`.
+  # Classrooms and offices share one IP, so keep bursts generous.
+  rate-limits:
+    enabled: ${RATE_LIMITS_ENABLED:true}
+    room-create: { burst: 20, every: 30s }
+    room-join: { burst: 40, every: 3s }
+    pack-create: { burst: 5, every: 6m }
+    pack-change: { burst: 30, every: 10s }
+    pack-lookup: { burst: 60, every: 1s }
   stomp-relay:
     host: ${RABBITMQ_HOST:localhost}
     port: ${RABBITMQ_STOMP_PORT:61613}

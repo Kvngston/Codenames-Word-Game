@@ -48,7 +48,7 @@ export function forgetSeat(code: string) {
   }
 }
 
-class RequestError extends Error {
+export class RequestError extends Error {
   constructor(
     readonly status: number,
     message: string,
@@ -57,7 +57,7 @@ class RequestError extends Error {
   }
 }
 
-async function request<T>(path: string, init: RequestInit & { token?: string } = {}): Promise<T> {
+export async function request<T>(path: string, init: RequestInit & { token?: string } = {}): Promise<T> {
   const { token, ...rest } = init;
   const response = await fetch(`${API}${path}`, {
     ...rest,
