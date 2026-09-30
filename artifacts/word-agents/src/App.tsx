@@ -147,13 +147,14 @@ function App() {
 
   return (
     <div className="app-shell">
+      <div className="classification-bar" aria-hidden="true"><span>Top secret</span><span>//</span><span>Eyes only</span></div>
       <header className="topbar">
         <div className="brand-lockup" aria-label="Word Agents">
           <span className="brand-mark" aria-hidden="true" />
-          <span><span className="brand-name">Word Agents</span><span className="brand-tag">Field notes for clever friends</span></span>
+          <span><span className="brand-name">Word Agents</span><span className="brand-tag">Covert word operations</span></span>
         </div>
         <div className="top-actions">
-          {view && <span className="role-pill room-pill" data-testid="text-room-code">Room {view.code}</span>}
+          {view && <span className="role-pill room-pill" data-testid="text-room-code">Op {view.code}</span>}
           {view && isHost && view.phase !== 'lobby' && (
             <button type="button" className="quiet-button" onClick={() => act({ type: 'new-game' })} data-testid="button-new-game">
               <RotateCcw size={14} /> New game
@@ -175,7 +176,7 @@ function App() {
 
       {!seat && <Home initialCode={code} onSeat={enterRoom} onError={setToast} />}
       {seat && connection === 'lost' && <LostRoom onHome={abandonSeat} />}
-      {seat && connection !== 'lost' && !view && <main className="layout"><div className="panel handoff-card"><p className="handoff-copy">Pulling up a chair…</p></div></main>}
+      {seat && connection !== 'lost' && !view && <main className="layout"><div className="panel handoff-card"><p className="handoff-copy loading-copy">Establishing secure line</p></div></main>}
       {seat && connection !== 'lost' && view && (
         <>
           {connection === 'reconnecting' && <ConnectionBanner connection={connection} />}
@@ -239,28 +240,28 @@ function Home({ initialCode, onSeat, onError }: { initialCode: string | null; on
       <section className="setup-wrap" aria-labelledby="welcome-title">
         <div className="setup-hero">
           <div>
-            <div className="eyebrow">A game of whispers &amp; wild guesses</div>
-            <h1 className="hero-title" id="welcome-title">Read the room.<br />Find your people.</h1>
+            <div className="eyebrow">Classified briefing · Eyes only</div>
+            <h1 className="hero-title" id="welcome-title">Crack the code.<br /><em>Find your agents.</em></h1>
             <p className="hero-copy">
-              One clue. A crowded map. Two teams trying to think on the same wavelength.
-              Everyone plays on their own phone, and only spymasters ever receive the secret map.
+              One clue. Twenty-five cover names. Two rival networks trying to think on the same wavelength.
+              Every agent plays on their own phone, and only spymasters ever receive the <span className="redact" tabIndex={0}>secret</span> map.
             </p>
           </div>
-          <div className="seal" aria-hidden="true"><div><b>25</b>words in play</div></div>
+          <div className="seal" aria-hidden="true"><div><b>25</b>targets tracked</div></div>
         </div>
 
-        <section className="panel setup-panel" aria-label="Join a table">
+        <section className="panel setup-panel" aria-label="Join an operation">
           <div className="section-heading">
-            <h2>{initialCode ? `Join room ${initialCode}` : 'Pull up a chair'}</h2>
-            <p>Your seat is remembered on this device.</p>
+            <h2>{initialCode ? `Join operation ${initialCode}` : 'Report for duty'}</h2>
+            <p>Your cover is remembered on this device.</p>
           </div>
           <div className="field">
-            <label htmlFor="player-name">Your name</label>
+            <label htmlFor="player-name">Codename</label>
             <input id="player-name" value={name} onChange={(event) => setName(event.target.value)} maxLength={24} autoComplete="nickname" data-testid="input-player-name" />
           </div>
           <form className="join-row" onSubmit={submitJoin}>
             <div className="field">
-              <label htmlFor="room-code">Room code</label>
+              <label htmlFor="room-code">Access code</label>
               <input
                 id="room-code"
                 value={joinCode}
@@ -272,26 +273,26 @@ function Home({ initialCode, onSeat, onError }: { initialCode: string | null; on
               />
             </div>
             <button type="submit" className="secondary-button" disabled={busy} data-testid="button-join-room">
-              Join room <ArrowRight size={15} />
+              Join op <ArrowRight size={15} />
             </button>
           </form>
           {!initialCode && (
             <div className="setup-foot">
               <div className="privacy-note">
                 <Shield size={17} aria-hidden="true" />
-                <span>Hosting? Open a room, then share the code or link with everyone at the table.</span>
+                <span>Running the mission? Open an operation, then send the access code or link to every agent in your crew.</span>
               </div>
               <button type="button" className="primary-button" disabled={busy} onClick={() => run(() => createRoom(name.trim()))} data-testid="button-create-room">
-                Open a room <ArrowRight size={15} />
+                Open an operation <ArrowRight size={15} />
               </button>
             </div>
           )}
         </section>
 
         <div className="setup-details">
-          <div className="detail-item"><KeyRound size={17} /><div><b>One map, two keepers</b><span>Each spymaster sees the map on their own screen. Nobody else’s device receives it.</span></div></div>
-          <div className="detail-item"><Users size={17} /><div><b>Talk it out together</b><span>Operatives read the clue, debate, then tap a word on their phone.</span></div></div>
-          <div className="detail-item"><Sparkles size={17} /><div><b>Find every agent</b><span>Find your team first. Avoid the assassin at all costs.</span></div></div>
+          <div className="detail-item"><KeyRound size={17} /><div><b>Need to know</b><span>Each spymaster sees the map on their own screen. Nobody else’s device ever receives it.</span></div></div>
+          <div className="detail-item"><Users size={17} /><div><b>Debrief together</b><span>Operatives decode the clue, argue it out, then tap a word on their phone.</span></div></div>
+          <div className="detail-item"><Sparkles size={17} /><div><b>Extract your agents</b><span>Make contact with your whole team first. Avoid the assassin at all costs.</span></div></div>
         </div>
       </section>
     </main>
@@ -322,9 +323,9 @@ function Lobby({ view, act, onToast, onManagePacks }: { view: RoomView; act: Act
       <section className="setup-wrap">
         <div className="lobby-head">
           <div>
-            <div className="eyebrow">Room {view.code} · {view.players.length} {view.players.length === 1 ? 'player' : 'players'}</div>
-            <h1 className="handoff-title">Choose your seat.</h1>
-            <p className="handoff-copy lobby-copy">Each team needs one spymaster and at least one operative. You are <b>{view.you.name}</b>{view.you.isHost ? ', the host' : ''}.</p>
+            <div className="eyebrow">Operation {view.code} · {view.players.length} {view.players.length === 1 ? 'agent' : 'agents'} on the line</div>
+            <h1 className="handoff-title">Choose your post.</h1>
+            <p className="handoff-copy lobby-copy">Each network needs one spymaster and at least one field operative. You are agent <b>{view.you.name}</b>{view.you.isHost ? ', the handler' : ''}.</p>
           </div>
           <div className="share-box">
             <span className="room-code-big" data-testid="text-room-code-big">{view.code}</span>
@@ -355,7 +356,7 @@ function Lobby({ view, act, onToast, onManagePacks }: { view: RoomView; act: Act
                   ) : (
                     <h2 className="side-title" style={{ margin: 0 }} data-testid={`text-team-name-${team}`}>{view.teamNames[team]}</h2>
                   )}
-                  {view.startingTeam === team && <span className="role-pill">Goes first</span>}
+                  {view.startingTeam === team && <span className="role-pill">First move</span>}
                 </div>
 
                 <div className="seat-label"><KeyRound size={13} /> Spymaster</div>
@@ -363,7 +364,7 @@ function Lobby({ view, act, onToast, onManagePacks }: { view: RoomView; act: Act
                   <PlayerRow player={spymaster} you={view.you} />
                 ) : (
                   <button type="button" className="seat-button" onClick={() => act({ type: 'take-seat', team, seat: 'spymaster' })} data-testid={`button-seat-${team}-spymaster`}>
-                    Take the map
+                    Take the codebook
                   </button>
                 )}
 
@@ -371,7 +372,7 @@ function Lobby({ view, act, onToast, onManagePacks }: { view: RoomView; act: Act
                 {operatives.map((player) => <PlayerRow key={player.id} player={player} you={view.you} />)}
                 {!(youHere && view.you.seat === 'operative') && (
                   <button type="button" className="seat-button" onClick={() => act({ type: 'take-seat', team, seat: 'operative' })} data-testid={`button-seat-${team}-operative`}>
-                    Join as operative
+                    Enlist as operative
                   </button>
                 )}
               </section>
@@ -381,7 +382,7 @@ function Lobby({ view, act, onToast, onManagePacks }: { view: RoomView; act: Act
 
         {unseated.length > 0 && (
           <section className="panel side-panel waiting-panel">
-            <div className="seat-label">Not seated yet</div>
+            <div className="seat-label">Awaiting assignment</div>
             <div className="player-chips">{unseated.map((player) => <PlayerRow key={player.id} player={player} you={view.you} />)}</div>
           </section>
         )}
@@ -391,18 +392,18 @@ function Lobby({ view, act, onToast, onManagePacks }: { view: RoomView; act: Act
         <section className="panel setup-panel lobby-foot">
           <div className="privacy-note">
             <Shield size={17} aria-hidden="true" />
-            <span>{problem ?? 'Everyone is seated. The spymasters will get the map the moment the words are dealt.'}</span>
+            <span>{problem ?? 'All posts filled. The spymasters receive the map the moment the words are dealt.'}</span>
           </div>
           <div className="action-row">
             {view.you.seat && (
-              <button type="button" className="secondary-button" onClick={() => act({ type: 'leave-seat' })} data-testid="button-leave-seat">Stand up</button>
+              <button type="button" className="secondary-button" onClick={() => act({ type: 'leave-seat' })} data-testid="button-leave-seat">Stand down</button>
             )}
             {view.you.isHost ? (
               <button type="button" className="primary-button" disabled={Boolean(problem)} onClick={() => act({ type: 'start' })} data-testid="button-start-game">
-                Deal the words <ArrowRight size={15} />
+                Launch mission <ArrowRight size={15} />
               </button>
             ) : (
-              <span className="role-pill">Waiting for the host to deal</span>
+              <span className="role-pill">Awaiting the handler’s go</span>
             )}
           </div>
         </section>
@@ -416,7 +417,7 @@ function PlayerRow({ player, you }: { player: PlayerView; you: PlayerView }) {
     <div className={`player-row${player.connected ? '' : ' offline'}`} data-testid={`row-player-${player.id}`}>
       <span className={`presence-dot${player.connected ? ' online' : ''}`} aria-label={player.connected ? 'Online' : 'Offline'} />
       <span className="player-name">{player.name}{player.id === you.id && ' (you)'}</span>
-      {player.isHost && <Crown size={13} aria-label="Host" />}
+      {player.isHost && <Crown size={13} aria-label="Handler" />}
     </div>
   );
 }
@@ -473,10 +474,10 @@ function Table({ view, act }: { view: RoomView; act: Act }) {
 
   const banner = (() => {
     if (finished) return null;
-    if (isActiveSpymaster && phase === 'clue') return { icon: <KeyRound size={18} />, title: `Your clue · ${activeName}`, copy: 'Your operatives are waiting. Only your screen shows the map.' };
-    if (isActiveOperative && phase === 'guessing') return { icon: <Users size={18} />, title: `Your guess · ${activeName}`, copy: 'Talk it through. Tap a word, or end the turn after a correct guess.' };
-    if (phase === 'clue') return { icon: <KeyRound size={18} />, title: `${activeName} spymaster is thinking`, copy: view.reviewPending ? 'Their clue is being checked by the other spymaster.' : 'Hold tight. The clue will appear here.' };
-    return { icon: <Users size={18} />, title: `${activeName} operatives are guessing`, copy: 'Watch the board. It’s not your turn to pick.' };
+    if (isActiveSpymaster && phase === 'clue') return { icon: <KeyRound size={18} />, title: `Transmit a clue · ${activeName}`, copy: 'Your operatives are standing by. Only your screen shows the map.' };
+    if (isActiveOperative && phase === 'guessing') return { icon: <Users size={18} />, title: `Make contact · ${activeName}`, copy: 'Talk it through. Tap a word, or go dark after a correct guess.' };
+    if (phase === 'clue') return { icon: <KeyRound size={18} />, title: `${activeName} spymaster is encoding`, copy: view.reviewPending ? 'Their clue is being vetted by the rival spymaster.' : 'Hold position. The transmission will appear here.' };
+    return { icon: <Users size={18} />, title: `${activeName} operatives are in the field`, copy: 'Watch the board. It’s not your move.' };
   })();
 
   return (
@@ -486,18 +487,19 @@ function Table({ view, act }: { view: RoomView; act: Act }) {
           <div className="game-head">
             <div>
               <div className="game-kicker"><span className="live-dot" /> You are {seatLabel(you, teamNames)}</div>
-              <h1 className="game-title">{finished ? 'The final map' : isSpymaster ? `${you.team ? teamNames[you.team] : ''} spymaster` : 'The word board'}</h1>
+              <h1 className="game-title">{finished ? 'Declassified' : isSpymaster ? `${you.team ? teamNames[you.team] : ''} spymaster` : 'Field board'}</h1>
             </div>
             <div className="turn-badge" style={teamStyle(activeTeam)}>
-              <span className="team-dot" /> {finished ? 'Game finished' : `${activeName} turn`}
+              <span className="team-dot" /> {finished ? 'Mission over' : `${activeName} move`}
             </div>
           </div>
           <ScoreStrip view={view} />
           {finished && (
             <section className="result-panel" data-testid="status-game-result">
-              <div className="eyebrow" style={{ color: '#e0c477' }}>Game over</div>
-              <h2>{view.winner ? `${teamNames[view.winner]} takes the table.` : 'The map is closed.'}</h2>
+              <div className="eyebrow">Mission report</div>
+              <h2>{view.winner ? `${teamNames[view.winner]} wins the op.` : 'The file is closed.'}</h2>
               <p>{view.resultMessage}</p>
+              <span className="result-stamp" aria-hidden="true">Case closed</span>
             </section>
           )}
           {banner && (
@@ -508,7 +510,7 @@ function Table({ view, act }: { view: RoomView; act: Act }) {
           )}
           {isActiveSpymaster && view.penaltyRevealPending && phase === 'clue' && (
             <div className="bonus-callout" data-testid="status-penalty-reveal">
-              <strong>Clue penalty:</strong> tap one unrevealed {activeName} card to reveal it, then give your clue.
+              <strong>Clue penalty</strong> tap one unrevealed {activeName} card to reveal it, then give your clue.
               <div className="action-row" style={{ marginTop: 9 }}>
                 {!mapVisible && <button className="secondary-button" type="button" onClick={() => setMapVisible(true)} data-testid="button-show-penalty-map">Show the map</button>}
                 <button className="secondary-button" type="button" onClick={() => act({ type: 'skip-penalty' })} data-testid="button-skip-penalty">Skip reveal</button>
@@ -517,7 +519,7 @@ function Table({ view, act }: { view: RoomView; act: Act }) {
           )}
           {isSpymaster && !finished && (
             <div className="spymaster-tools">
-              <span className="role-pill">Secret map {mapVisible ? 'showing' : 'covered'}</span>
+              <span className="role-pill">Secret map {mapVisible ? 'exposed' : 'concealed'}</span>
               <button type="button" className="quiet-button" onClick={() => setMapVisible(!mapVisible)} aria-pressed={mapVisible} data-testid="button-toggle-key">
                 {mapVisible ? <><EyeOff size={15} /> Cover map</> : <><Eye size={15} /> Show map</>}
               </button>
@@ -527,29 +529,29 @@ function Table({ view, act }: { view: RoomView; act: Act }) {
             {view.cards.map(renderCard)}
           </div>
           <div className="board-legend">
-            <span>25 WORDS · {view.cards.filter((card) => card.revealed).length} REVEALED</span>
-            <span>{finished ? 'Final board' : isSpymaster ? 'Keep your screen to yourself' : 'Choose carefully'}</span>
+            <span>25 cover names · {view.cards.filter((card) => card.revealed).length} exposed</span>
+            <span>{finished ? 'All identities declassified' : isSpymaster ? 'Guard your screen' : 'Trust no one'}</span>
           </div>
         </section>
 
         <aside className="game-side">
           {finished ? (
             <section className="panel side-panel">
-              <h2 className="side-title">Play again?</h2>
+              <h2 className="side-title">New assignment?</h2>
               {you.isHost ? (
                 <>
-                  <p className="turn-copy">A new game deals 25 fresh words from the same word list, and a new secret map. Everyone keeps their seat. You can change the words in the lobby.</p>
+                  <p className="turn-copy">A new mission deals 25 fresh cover names from the same word list, and a new secret map. Everyone keeps their post. You can change the words in the lobby.</p>
                   <button type="button" className="primary-button" style={{ width: '100%' }} onClick={() => act({ type: 'new-game' })} data-testid="button-new-game-finished">
                     New game <RotateCcw size={14} />
                   </button>
                 </>
               ) : (
-                <p className="turn-copy">The host can deal a new game. You’ll be back in the lobby with your seat.</p>
+                <p className="turn-copy">The handler can start a new mission. You’ll be back in the briefing room with your post.</p>
               )}
             </section>
           ) : isActiveSpymaster && phase === 'clue' ? (
             <section className="panel side-panel" aria-labelledby="clue-form-title">
-              <h2 className="side-title" id="clue-form-title">{view.penaltyRevealPending ? 'Reveal first' : view.reviewPending ? 'Clue under review' : 'Give a clue'}</h2>
+              <h2 className="side-title" id="clue-form-title">{view.penaltyRevealPending ? 'Reveal first' : view.reviewPending ? 'Clue under review' : 'Transmit a clue'}</h2>
               {view.penaltyRevealPending ? (
                 <p className="turn-copy">Use the map to choose one friendly card for the penalty reveal, or skip it.</p>
               ) : view.reviewPending ? (
@@ -561,7 +563,7 @@ function Table({ view, act }: { view: RoomView; act: Act }) {
                   <p className="turn-copy">Choose one word and a number. The number sets your target, plus one extra guess.</p>
                   <form className="clue-form" onSubmit={submitClue}>
                     <label className="sr-only" htmlFor="clue-input">One-word clue</label>
-                    <input id="clue-input" value={clueDraft} onChange={(event) => setClueDraft(event.target.value)} placeholder="Your clue" autoComplete="off" maxLength={32} data-testid="input-clue" />
+                    <input id="clue-input" value={clueDraft} onChange={(event) => setClueDraft(event.target.value)} placeholder="Codeword" autoComplete="off" maxLength={32} data-testid="input-clue" />
                     <label className="sr-only" htmlFor="clue-number">Guess number</label>
                     <select
                       id="clue-number"
@@ -573,7 +575,7 @@ function Table({ view, act }: { view: RoomView; act: Act }) {
                       {Array.from({ length: 9 }, (_, index) => <option key={index + 1} value={index + 1}>{index + 1}</option>)}
                       <option value="unlimited">∞ · unlimited</option>
                     </select>
-                    <button type="submit" className="primary-button" data-testid="button-submit-clue">Give the clue <ArrowRight size={14} /></button>
+                    <button type="submit" className="primary-button" data-testid="button-submit-clue">Transmit <ArrowRight size={14} /></button>
                   </form>
                   <p className="turn-copy" style={{ marginTop: 11, marginBottom: 0 }}>A zero or unlimited clue has no numeric cap. Operatives must make one guess before stopping.</p>
                 </>
@@ -592,16 +594,16 @@ function Table({ view, act }: { view: RoomView; act: Act }) {
                   {isActiveOperative && (
                     <>
                       <button type="button" className="secondary-button" style={{ width: '100%', marginTop: 4 }} onClick={() => act({ type: 'end-turn' })} disabled={view.turnGuesses < 1} data-testid="button-stop-turn">
-                        End turn <Flag size={14} />
+                        Go dark <Flag size={14} />
                       </button>
-                      {view.turnGuesses < 1 && <p className="turn-copy" style={{ margin: '9px 0 0', fontSize: 10 }}>One guess minimum before you can end this turn.</p>}
+                      {view.turnGuesses < 1 && <p className="turn-copy" style={{ margin: '9px 0 0', fontSize: 10 }}>One guess minimum before you can go dark.</p>}
                     </>
                   )}
                 </>
               ) : (
                 <>
-                  <h2 className="side-title" id="current-clue-title">Waiting for a clue</h2>
-                  <p className="turn-copy">The {activeName} spymaster is choosing a word. It will appear on every screen at once.</p>
+                  <h2 className="side-title" id="current-clue-title">Awaiting transmission</h2>
+                  <p className="turn-copy">The {activeName} spymaster is encoding a word. It will appear on every screen at once.</p>
                 </>
               )}
             </section>
@@ -623,8 +625,8 @@ function ReviewDialog({ view, act }: { view: RoomView; act: Act }) {
       <section className="dialog" role="dialog" aria-modal="true" aria-labelledby="review-title">
         <div className="dialog-head">
           <div>
-            <div className="eyebrow">Your ruling</div>
-            <h2 id="review-title">Check this clue</h2>
+            <div className="eyebrow">Counterintelligence</div>
+            <h2 id="review-title">Vet this clue</h2>
           </div>
         </div>
         <p className="dialog-copy">
@@ -648,8 +650,8 @@ function RulesDialog({ onClose }: { onClose: () => void }) {
       <section className="dialog" role="dialog" aria-modal="true" aria-labelledby="dialog-title">
         <div className="dialog-head">
           <div>
-            <div className="eyebrow">Before the first clue</div>
-            <h2 id="dialog-title">How to play</h2>
+            <div className="eyebrow">Field manual</div>
+            <h2 id="dialog-title">Rules of engagement</h2>
           </div>
           <button type="button" className="icon-button" aria-label="Close dialog" onClick={onClose} data-testid="button-close-dialog"><X size={17} /></button>
         </div>
@@ -663,7 +665,7 @@ function RulesDialog({ onClose }: { onClose: () => void }) {
           <li>In the lobby, the host picks the word packs and can add the table’s own words. Custom words always make the board.</li>
         </ul>
         <p className="dialog-copy">Only spymasters’ devices receive the secret map, so there’s nothing for operatives to peek at.</p>
-        <div className="dialog-actions"><button type="button" className="primary-button" onClick={onClose} data-testid="button-rules-got-it">Got it</button></div>
+        <div className="dialog-actions"><button type="button" className="primary-button" onClick={onClose} data-testid="button-rules-got-it">Understood</button></div>
       </section>
     </div>
   );
@@ -672,7 +674,7 @@ function RulesDialog({ onClose }: { onClose: () => void }) {
 function ConnectionBanner({ connection }: { connection: Connection }) {
   return (
     <div className="connection-banner" role="status" data-testid="status-connection">
-      <WifiOff size={14} /> {connection === 'reconnecting' ? 'Connection dropped. Reconnecting…' : 'Connecting…'}
+      <WifiOff size={14} /> {connection === 'reconnecting' ? 'Signal lost. Re-establishing contact…' : 'Connecting…'}
     </div>
   );
 }
@@ -682,9 +684,9 @@ function LostRoom({ onHome }: { onHome: () => void }) {
     <main className="layout">
       <section className="panel handoff-card" data-testid="status-room-lost">
         <div className="handoff-icon"><WifiOff size={28} /></div>
-        <h1 className="handoff-title">This table is closed.</h1>
-        <p className="handoff-copy">The room has ended or your seat is no longer valid. Ask the host for a new code.</p>
-        <button type="button" className="primary-button" onClick={onHome} data-testid="button-back-home">Back to the start <ArrowRight size={15} /></button>
+        <h1 className="handoff-title">Operation terminated.</h1>
+        <p className="handoff-copy">The operation has ended or your cover is no longer valid. Ask the handler for a new access code.</p>
+        <button type="button" className="primary-button" onClick={onHome} data-testid="button-back-home">Return to base <ArrowRight size={15} /></button>
       </section>
     </main>
   );
@@ -696,13 +698,13 @@ function ScoreStrip({ view }: { view: RoomView }) {
     <section className="score-strip" aria-label="Remaining agents">
       <div className="score-team" style={teamStyle('red')}>
         <span className="team-dot" />
-        <div className="score-block"><div className="score-name" data-testid="text-team-name-red">{teamNames.red}</div><span className="score-sub">{totals.red - remaining.red} found</span></div>
+        <div className="score-block"><div className="score-name" data-testid="text-team-name-red">{teamNames.red}</div><span className="score-sub">{totals.red - remaining.red} contacted</span></div>
         <span className="score-number" data-testid="count-team-red">{remaining.red}</span>
       </div>
-      <span className="versus">REMAIN</span>
+      <span className="versus">AT LARGE</span>
       <div className="score-team" style={teamStyle('blue')}>
         <span className="score-number" data-testid="count-team-blue">{remaining.blue}</span>
-        <div className="score-block"><div className="score-name" data-testid="text-team-name-blue">{teamNames.blue}</div><span className="score-sub">{totals.blue - remaining.blue} found</span></div>
+        <div className="score-block"><div className="score-name" data-testid="text-team-name-blue">{teamNames.blue}</div><span className="score-sub">{totals.blue - remaining.blue} contacted</span></div>
         <span className="team-dot" />
       </div>
     </section>
@@ -714,7 +716,7 @@ function CurrentClue({ view, titleId }: { view: RoomView; titleId?: string }) {
   const numberText = clue?.number === 'unlimited' ? '∞' : clue?.number;
   return (
     <div className="clue-entry" data-testid="panel-current-clue">
-      <div className="clue-label" id={titleId}>Current clue · {view.teamNames[clue?.team ?? view.activeTeam]}</div>
+      <div className="clue-label" id={titleId}>Intercepted · {view.teamNames[clue?.team ?? view.activeTeam]}</div>
       <div className="clue-word" data-testid="text-current-clue">{clue?.word ?? 'Waiting for a clue'} <span className="clue-number" data-testid="text-clue-number">{numberText}</span></div>
       {view.guessesRemaining !== 0 && (
         <div className="guess-track" aria-label={`${view.guessesRemaining} guesses remaining`}>
@@ -732,13 +734,13 @@ function CurrentClue({ view, titleId }: { view: RoomView; titleId?: string }) {
 function PlayersPanel({ view, act }: { view: RoomView; act: Act }) {
   return (
     <section className="panel side-panel" aria-labelledby="players-title">
-      <h2 className="side-title" id="players-title">At the table</h2>
+      <h2 className="side-title" id="players-title">Agents on the line</h2>
       <div className="players-list">
         {view.players.map((player) => (
           <div key={player.id} className={`player-row${player.connected ? '' : ' offline'}`} style={player.team ? teamStyle(player.team) : undefined}>
             <span className={`presence-dot${player.connected ? ' online' : ''}`} aria-label={player.connected ? 'Online' : 'Offline'} />
             <span className="player-name">{player.name}{player.id === view.you.id && ' (you)'}</span>
-            <span className="player-seat">{player.team && player.seat ? `${view.teamNames[player.team]} ${player.seat}` : 'watching'}</span>
+            <span className="player-seat">{player.team && player.seat ? `${view.teamNames[player.team]} ${player.seat}` : 'observer'}</span>
           </div>
         ))}
       </div>
@@ -759,7 +761,7 @@ function HistoryPanel({ view }: { view: RoomView }) {
   return (
     <section className="panel side-panel history-panel" aria-labelledby="history-title">
       <div className="section-heading" style={{ marginBottom: 12 }}>
-        <h2 className="side-title" id="history-title" style={{ margin: 0 }}>Clue trail</h2>
+        <h2 className="side-title" id="history-title" style={{ margin: 0 }}>Signal log</h2>
         <span className="role-pill" data-testid="text-clue-count">{view.clueHistory.length} {view.clueHistory.length === 1 ? 'clue' : 'clues'}</span>
       </div>
       {view.clueHistory.length ? (
@@ -773,7 +775,7 @@ function HistoryPanel({ view }: { view: RoomView }) {
           ))}
         </div>
       ) : (
-        <div className="empty-history" data-testid="empty-clue-history">No clues yet. The first spymaster is waiting to make a connection.</div>
+        <div className="empty-history" data-testid="empty-clue-history">No transmissions yet. The first spymaster is waiting to make contact.</div>
       )}
     </section>
   );
