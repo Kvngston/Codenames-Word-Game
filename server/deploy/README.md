@@ -114,14 +114,92 @@ gunzip -c restore.sql.gz | docker compose -f compose.prod.yaml exec -T mysql \
 
 ## Deploying a new version
 
+Merging to `main` releases and deploys automatically; see the next section.
+To deploy or roll back to a specific release by hand, either run **Actions →
+Release → Run workflow** with the tag, or on the VM:
+
 ```bash
-cd ~/Codenames-Word-Game && git pull
-cd server/deploy && docker compose -f compose.prod.yaml up -d --build
+~/Codenames-Word-Game/server/deploy/ci-deploy.sh v1.2.3
 ```
 
-Only the app container is rebuilt and restarted. Players reconnect
-automatically after a few seconds, and Liquibase applies any new changesets on
-startup.
+The script checks out that tag, records it in `release.env` (which is what
+`/api/healthz` reports as `version`), and rebuilds only the app container.
+Players reconnect automatically after a few seconds, and Liquibase applies any
+new changesets on startup.
+
+## CI/CD with GitHub Actions
+
+| Workflow | Runs on | Does |
+|---|---|---|
+| `test.yml` | Every pull request to `main` | Server tests (with Testcontainers) and the TypeScript typecheck |
+| `auto-release.yml` | Every push to `main`, except changes that only touch Markdown, `docs/` or `LICENSE` | Tests, creates the next release, then calls `release.yml` |
+| `release.yml` | A release you publish by hand, a call from `auto-release.yml`, or **Run workflow** | Tests the tag (unless already tested), deploys the API to the VM, waits for `/api/healthz` to report the new version, then deploys the React app to Vercel |
+
+**Versions** are bumped from the latest `vX.Y.Z` tag: a patch by default, or a
+minor or major bump when any commit message since that tag contains `#minor`
+or `#major`. The first release is `v1.0.0`, and release notes come from
+GitHub's generated notes.
+
+### One-time setup
+
+**1. Make sure the VM has `ci-deploy.sh`.** Pull once:
+
+```bash
+cd ~/Codenames-Word-Game && git pull
+```
+
+**2. Create a deploy key on the VM.** It's locked to `ci-deploy.sh`, so the key
+can do nothing except deploy an existing tag:
+
+```bash
+ssh-keygen -t ed25519 -f ~/codename-deploy -N "" -C github-actions-deploy
+echo "command=\"$HOME/Codenames-Word-Game/server/deploy/ci-deploy.sh\",restrict $(cat ~/codename-deploy.pub)" >> ~/.ssh/authorized_keys
+cat ~/codename-deploy          # copy all of it, including the BEGIN/END lines, for ORACLE_SSH_KEY
+rm ~/codename-deploy ~/codename-deploy.pub
+```
+
+**3. Get the VM's host key**, so the workflow can confirm it's talking to
+your VM:
+
+```bash
+echo "codenameapi.tkcodes.xyz $(cut -d' ' -f1,2 /etc/ssh/ssh_host_ed25519_key.pub)"   # copy the output for ORACLE_KNOWN_HOSTS
+```
+
+Port 22 must stay open to `0.0.0.0/0` in the VCN security list, because
+GitHub's runners don't have fixed IPs. The VM only accepts SSH keys, not
+passwords.
+
+**4. Vercel.**
+- **Token:** create one under Account Settings → Tokens.
+- **Project ID:** Project → Settings → General.
+- **Team or account ID:** Team Settings → General, labelled *Team ID* or *Vercel ID*.
+- Make sure the project has `VITE_API_URL=https://codenameapi.tkcodes.xyz` for
+  the Production environment. `vercel.json` turns off all of Vercel's own
+  Git deploys (production and previews), so the site only changes when the
+  release workflow deploys it after a merge to `main`.
+
+**5. GitHub: create a `production` environment.** Go to Settings →
+Environments → New environment → `production`, and add:
+
+| Type | Name | Value |
+|---|---|---|
+| Secret | `ORACLE_HOST` | `codenameapi.tkcodes.xyz` |
+| Secret | `ORACLE_SSH_KEY` | the private key from step 2 |
+| Secret | `ORACLE_KNOWN_HOSTS` | the line from step 3 |
+| Secret | `VERCEL_TOKEN` | the token from step 4 |
+| Variable | `VERCEL_ORG_ID` | the team or account ID |
+| Variable | `VERCEL_PROJECT_ID` | the project ID |
+
+**6. Protect `main` (recommended).** Settings → Branches → Add rule for
+`main`: require a pull request, and require the **test** status check. Then
+every merge has passed CI before it releases.
+
+### Watching and fixing a release
+
+The Actions tab shows each release's run. If the API step fails, the site
+isn't deployed, and the VM is left on whichever tag the script reached. Fix
+the problem and merge again, or rerun **Release** with a working tag to roll
+back.
 
 ## Keeping the free VM
 
@@ -134,6 +212,7 @@ stay free and are no longer reclaimed; set a budget alert
 ## Useful commands
 
 ```bash
+curl https://codenameapi.tkcodes.xyz/api/healthz    # {"status":"ok","version":"v1.2.3"}
 docker compose -f compose.prod.yaml ps              # status
 docker compose -f compose.prod.yaml logs -f app     # server logs
 docker compose -f compose.prod.yaml logs caddy      # certificate problems show up here

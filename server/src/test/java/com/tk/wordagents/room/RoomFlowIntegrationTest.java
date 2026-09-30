@@ -265,6 +265,14 @@ class RoomFlowIntegrationTest {
     }
 
     @Test
+    void healthReportsTheDeployedVersion() throws Exception {
+        Response health = call("GET", "/healthz", null, null);
+        assertThat(health.status()).isEqualTo(200);
+        assertThat(health.body().get("status").asString()).isEqualTo("ok");
+        assertThat(health.body().get("version").asString()).isEqualTo("dev");
+    }
+
+    @Test
     void restErrorsAreJson() throws Exception {
         Seat host = create("Ada");
         assertThat(call("GET", "/rooms/" + host.code() + "/view", null, "nope").status()).isEqualTo(403);

@@ -1,0 +1,56 @@
+# Every merge to main (except docs-only changes) is tested, released as the
+# next version, and deployed.
+#
+# The version is bumped from the latest vX.Y.Z tag: patch by default, or minor
+# or major when a commit message since that tag contains #minor or #major.
+# The first release is v1.0.0.
+name: Auto release
+
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - "**.md"
+      - "docs/**"
+      - LICENSE
+
+# Different from release.yml's group: a caller and the workflow it calls must
+# not share one, or the call would wait on its own caller.
+concurrency:
+  group: auto-release
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    uses: ./.github/workflows/test.yml
+    with:
+      ref: ${{ github.sha }}
+
+  release:
+    needs: test
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    outputs:
+      tag: ${{ steps.version.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Create the next release
+        id: version
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: ./.github/scripts/next-release.sh
+
+  deploy:
+    needs: release
+    uses: ./.github/workflows/release.yml
+    with:
+      tag: ${{ needs.release.outputs.tag }}
+      tested: true
+    secrets: inherit

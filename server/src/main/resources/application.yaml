@@ -21,6 +21,8 @@ spring:
     change-log: classpath:db/changelog/db.changelog-master.yaml
 
 app:
+  # The release tag being served; set by deploy/ci-deploy.sh through release.env.
+  version: ${APP_VERSION:dev}
   # Comma-separated origins allowed to call the API and open the WebSocket,
   # e.g. https://your-app.vercel.app
   allowed-origins: ${ALLOWED_ORIGINS:http://localhost:5173,http://localhost:22021}
