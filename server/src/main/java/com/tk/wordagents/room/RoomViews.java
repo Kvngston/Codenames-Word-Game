@@ -30,6 +30,9 @@ public final class RoomViews {
     /** Where the board's words come from. Custom words are only sent to the host, so they stay a surprise. */
     public record WordsView(List<String> packs, List<String> customWords, int customCount, int poolSize) {}
 
+    /** Whether turns are timed, and how long each one gets. */
+    public record TimerView(boolean on, long spymasterSeconds, long operativeSeconds) {}
+
     public record RoomView(
         String code,
         long version,
@@ -52,7 +55,12 @@ public final class RoomViews {
         boolean reviewPending,
         ActiveClue review,
         WordsView words,
-        String lastEvent) {}
+        String lastEvent,
+        TimerView timer,
+        /** Epoch millis when the current turn's time runs out, or null outside a turn. */
+        Long turnEndsAt,
+        /** The server's clock when this view was built, so a device can correct for its own. */
+        long serverTime) {}
 
     /**
      * Builds the only state this player's device ever receives. Unrevealed card
@@ -93,7 +101,10 @@ public final class RoomViews {
             room.pendingReview().isPresent(),
             isSpymaster ? room.pendingReview().orElse(null) : null,
             new WordsView(room.getWordPacks(), isHost ? room.getCustomWords() : null, room.getCustomWords().size(), room.getPoolSize()),
-            room.getLastEvent());
+            room.getLastEvent(),
+            new TimerView(room.isTurnTimer(), room.getSpymasterTime().toSeconds(), room.getOperativeTime().toSeconds()),
+            room.getTurnEndsAt() == null ? null : room.getTurnEndsAt().toEpochMilli(),
+            System.currentTimeMillis());
     }
 
     private static PlayerView playerView(Room room, Player player, Predicate<String> isOnline) {

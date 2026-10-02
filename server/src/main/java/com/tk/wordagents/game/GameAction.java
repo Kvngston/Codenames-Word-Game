@@ -11,6 +11,7 @@ import java.util.List;
     @JsonSubTypes.Type(value = GameAction.LeaveSeat.class, name = "leave-seat"),
     @JsonSubTypes.Type(value = GameAction.RenameTeam.class, name = "rename-team"),
     @JsonSubTypes.Type(value = GameAction.SetWords.class, name = "set-words"),
+    @JsonSubTypes.Type(value = GameAction.SetTimer.class, name = "set-timer"),
     @JsonSubTypes.Type(value = GameAction.Start.class, name = "start"),
     @JsonSubTypes.Type(value = GameAction.GiveClue.class, name = "give-clue"),
     @JsonSubTypes.Type(value = GameAction.ReviewClue.class, name = "review-clue"),
@@ -32,6 +33,12 @@ public sealed interface GameAction {
 
     /** Pack ids or saved-pack codes, plus the host's own words. Re-deals the lobby board. */
     record SetWords(List<String> packs, List<String> customWords) implements GameAction {}
+
+    /**
+     * Turns the turn timer on or off, and sets how long the spymaster has for a
+     * clue and the operatives have to guess. A null time keeps the current one.
+     */
+    record SetTimer(boolean on, Integer spymasterSeconds, Integer operativeSeconds) implements GameAction {}
 
     record Start() implements GameAction {}
 

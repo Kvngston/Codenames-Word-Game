@@ -9,6 +9,7 @@ import jakarta.persistence.Id;
 import jakarta.persistence.OneToMany;
 import jakarta.persistence.OrderBy;
 import jakarta.persistence.Table;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
@@ -86,6 +87,21 @@ public class Room {
 
     @Column(name = "penalty_reveal_pending", nullable = false)
     private boolean penaltyRevealPending;
+
+    /** Whether turns are timed. The host's choice; off unless they turn it on. */
+    @Column(name = "turn_timer", nullable = false)
+    private boolean turnTimer;
+
+    /** How long each spymaster has for a clue, and each team's operatives to guess, with the timer on. */
+    @Column(name = "spymaster_seconds", nullable = false)
+    private int spymasterSeconds = (int) GameRules.DEFAULT_SPYMASTER_TIME.toSeconds();
+
+    @Column(name = "operative_seconds", nullable = false)
+    private int operativeSeconds = (int) GameRules.DEFAULT_OPERATIVE_TIME.toSeconds();
+
+    /** When the active spymaster's or operatives' time runs out; null outside a turn or with the timer off. */
+    @Column(name = "turn_ends_at")
+    private Instant turnEndsAt;
 
     /** Comma-separated pack ids and saved-pack codes the board is dealt from. */
     @Column(name = "word_packs", nullable = false)
@@ -209,6 +225,14 @@ public class Room {
     public void setLastEvent(String lastEvent) { this.lastEvent = lastEvent; }
     public boolean isPenaltyRevealPending() { return penaltyRevealPending; }
     public void setPenaltyRevealPending(boolean penaltyRevealPending) { this.penaltyRevealPending = penaltyRevealPending; }
+    public boolean isTurnTimer() { return turnTimer; }
+    public void setTurnTimer(boolean turnTimer) { this.turnTimer = turnTimer; }
+    public Duration getSpymasterTime() { return Duration.ofSeconds(spymasterSeconds); }
+    public void setSpymasterTime(Duration time) { spymasterSeconds = (int) time.toSeconds(); }
+    public Duration getOperativeTime() { return Duration.ofSeconds(operativeSeconds); }
+    public void setOperativeTime(Duration time) { operativeSeconds = (int) time.toSeconds(); }
+    public Instant getTurnEndsAt() { return turnEndsAt; }
+    public void setTurnEndsAt(Instant turnEndsAt) { this.turnEndsAt = turnEndsAt; }
     public long getRevision() { return revision; }
     public Instant getUpdatedAt() { return updatedAt; }
     public List<Player> getPlayers() { return players; }

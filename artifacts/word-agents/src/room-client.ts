@@ -97,6 +97,14 @@ export async function leaveRoom(seat: Seat): Promise<void> {
   forgetSeat(seat.code);
 }
 
+const withoutClock = ({ turnEndsAt, serverTime, ...rest }: RoomView) => rest;
+
+const sameState = (a: RoomView, b: RoomView) => JSON.stringify(withoutClock(a)) === JSON.stringify(withoutClock(b));
+
+/** Moves the turn deadline onto this device's clock, so a fast or slow clock still counts down correctly. */
+const onLocalClock = (view: RoomView): RoomView =>
+  view.turnEndsAt === null ? view : { ...view, turnEndsAt: view.turnEndsAt - view.serverTime + Date.now() };
+
 /**
  * Keeps this seat's private view of the room up to date. The view is loaded
  * over HTTP, then the server pushes a fresh copy over STOMP after every change.
@@ -106,10 +114,12 @@ export function useRoom(seat: Seat | null) {
   const [connection, setConnection] = useState<Connection>('connecting');
   const latest = useRef<RoomView | null>(null);
 
-  const accept = useCallback((next: RoomView) => {
+  const accept = useCallback((received: RoomView) => {
     const current = latest.current;
-    if (current && current.version > next.version) return;
-    if (current && JSON.stringify(current) === JSON.stringify(next)) return;
+    if (current && current.version > received.version) return;
+    // Every view carries a fresh serverTime, so compare without the clock fields.
+    if (current && current.version === received.version && sameState(current, received)) return;
+    const next = onLocalClock(received);
     latest.current = next;
     setView(next);
   }, []);

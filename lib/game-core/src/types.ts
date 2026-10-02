@@ -21,6 +21,15 @@ export interface ActiveClue {
   number: ClueNumber;
 }
 
+/** The host's turn timer. Off by default; the times apply once it's on. */
+export interface TimerSettings {
+  on: boolean;
+  /** How long a spymaster has for a clue, 30 to 600. */
+  spymasterSeconds: number;
+  /** How long the operatives have to guess, 30 to 600. */
+  operativeSeconds: number;
+}
+
 /** Where a room's board words come from. */
 export interface WordSettings {
   /** Built-in pack ids (e.g. "movies") and saved-pack codes. */
@@ -78,6 +87,14 @@ export interface RoomView {
   review: ActiveClue | null;
   words: WordSettings;
   lastEvent: string;
+  timer: TimerSettings;
+  /**
+   * Epoch millis when the turn's time runs out, or null outside a turn or
+   * with the timer off. useRoom shifts it onto this device's clock.
+   */
+  turnEndsAt: number | null;
+  /** The server's clock when the view was built. */
+  serverTime: number;
 }
 
 export type Action =
@@ -85,6 +102,7 @@ export type Action =
   | { type: 'leave-seat' }
   | { type: 'rename-team'; team: Team; name: string }
   | { type: 'set-words'; packs: string[]; customWords: string[] }
+  | { type: 'set-timer'; on: boolean; spymasterSeconds?: number; operativeSeconds?: number }
   | { type: 'start' }
   | { type: 'give-clue'; word: string; number: ClueNumber }
   | { type: 'review-clue'; uphold: boolean }

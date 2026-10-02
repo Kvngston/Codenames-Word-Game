@@ -9,6 +9,7 @@ import {
   Eye,
   EyeOff,
   Flag,
+  Hourglass,
   Library,
   Pencil,
   Radio,
@@ -22,6 +23,7 @@ import {
 } from 'lucide-react';
 import {
   clueConflict,
+  clueFormatProblem,
   otherTeam,
   seatingProblem,
   type Action,
@@ -428,6 +430,7 @@ function Lobby({ view, act, onToast, onManagePacks }: { view: RoomView; act: Act
       <section className="lobby-settings" aria-labelledby="settings-title">
         <h2 className="section-title" id="settings-title">Tactical intel settings</h2>
         <WordsPanel view={view} act={act} onToast={onToast} onManagePacks={onManagePacks} />
+        <TimerPanel view={view} act={act} />
         <div className="panel launch-panel">
           <p className="muted-copy small center" data-testid="text-seating-status">
             {problem ?? 'All spymasters are locked in. Prepared for deployment.'}
@@ -445,6 +448,59 @@ function Lobby({ view, act, onToast, onManagePacks }: { view: RoomView; act: Act
         </div>
       </section>
     </main>
+  );
+}
+
+/** Turn lengths the host can pick, in seconds. The server accepts 30 seconds to 10 minutes. */
+const TURN_TIMES = [30, 60, 90, 120, 180, 240, 300, 420, 600];
+
+/** 30 sec, 1 min, 1:30, 5 min. */
+function turnTime(seconds: number): string {
+  const minutes = Math.floor(seconds / 60);
+  const rest = seconds % 60;
+  if (!minutes) return `${rest} sec`;
+  return rest ? `${minutes}:${String(rest).padStart(2, '0')}` : `${minutes} min`;
+}
+
+/** The host turns the turn timer on or off and sets its times; everyone else sees what they are. */
+function TimerPanel({ view, act }: { view: RoomView; act: Act }) {
+  const { on, spymasterSeconds, operativeSeconds } = view.timer;
+  const detail = `${turnTime(spymasterSeconds)} for each clue, ${turnTime(operativeSeconds)} to guess`;
+  const set = (change: Partial<{ on: boolean; spymasterSeconds: number; operativeSeconds: number }>) =>
+    act({ type: 'set-timer', on, spymasterSeconds, operativeSeconds, ...change });
+  // Keep a time set some other way selectable, so the picker never shows the wrong value.
+  const choices = (current: number) => [...new Set([...TURN_TIMES, current])].sort((a, b) => a - b);
+  const picker = (id: string, label: string, value: number, key: 'spymasterSeconds' | 'operativeSeconds') => (
+    <div className="field">
+      <label className="mono-label" htmlFor={id}>{label}</label>
+      <select id={id} className="text-input" value={value} onChange={(event) => void set({ [key]: Number(event.target.value) })} data-testid={`select-${id}`}>
+        {choices(value).map((seconds) => <option key={seconds} value={seconds}>{turnTime(seconds)}</option>)}
+      </select>
+    </div>
+  );
+  return (
+    <section className="panel form-panel" aria-labelledby="timer-title">
+      <div className="panel-head">
+        <h3 className="panel-title" id="timer-title">Turn timer</h3>
+        <span className="count-chip neutral">{on ? 'On' : 'Off'}</span>
+      </div>
+      {view.you.isHost ? (
+        <>
+          <button type="button" className="pack-toggle" aria-pressed={on} onClick={() => set({ on: !on })} data-testid="button-turn-timer">
+            <span className="pack-toggle-text"><b>Time each turn</b><span>When time runs out, the turn passes to the other team.</span></span>
+            <span className="switch" aria-hidden="true"><span /></span>
+          </button>
+          {on && (
+            <div className="timer-fields">
+              {picker('spymaster-time', 'Spymaster', spymasterSeconds, 'spymasterSeconds')}
+              {picker('operative-time', 'Operatives', operativeSeconds, 'operativeSeconds')}
+            </div>
+          )}
+        </>
+      ) : (
+        <p className="muted-copy small" data-testid="text-turn-timer">{on ? `Turns are timed: ${detail}.` : 'Turns are untimed.'}</p>
+      )}
+    </section>
   );
 }
 
@@ -499,7 +555,7 @@ function Table({ view, act, log }: { view: RoomView; act: Act; log: LogEntry[] }
   const secondsLeft = pending ? Math.max(1, Math.ceil((pending.until - now) / 1000)) : 0;
   // A numeric clue caps how many words can be guessed at once (the number, plus one).
   const maxPicks = view.guessesRemaining === 'unlimited' ? Infinity : view.guessesRemaining;
-  const clueProblem = clueConflict(clueDraft, view.cards);
+  const clueProblem = clueFormatProblem(clueDraft) ?? clueConflict(clueDraft, view.cards);
   const playerName = (id: string) => view.players.find((player) => player.id === id)?.name ?? 'Someone';
 
   /** Who highlighted a card, with this device's own taps shown before the server confirms them. */
@@ -701,6 +757,7 @@ function Table({ view, act, log }: { view: RoomView; act: Act; log: LogEntry[] }
       <div className="status-bar" style={teamStyle(activeTeam)}>
         <div className="status-phase"><span className="team-dot" /> {phaseText}</div>
         <span className="timer-pill"><Radio size={15} /> Turn {Math.max(turnNumber, 1)}</span>
+        {!finished && view.turnEndsAt !== null && <TurnClock endsAt={view.turnEndsAt} />}
         <ScoreStrip view={view} detailed={isSpymaster || finished} />
       </div>
 
@@ -1065,6 +1122,23 @@ function LostRoom({ onHome }: { onHome: () => void }) {
         <button type="button" className="gold-button" onClick={onHome} data-testid="button-back-home">Return to base <ArrowRight size={15} /></button>
       </section>
     </main>
+  );
+}
+
+/** The turn's countdown. The server ends the turn when it reaches zero; this only shows it. */
+function TurnClock({ endsAt }: { endsAt: number }) {
+  const [now, setNow] = useState(Date.now);
+  useEffect(() => {
+    setNow(Date.now());
+    const timer = window.setInterval(() => setNow(Date.now()), 250);
+    return () => window.clearInterval(timer);
+  }, [endsAt]);
+  const seconds = Math.max(0, Math.ceil((endsAt - now) / 1000));
+  const clock = `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`;
+  return (
+    <span className={`timer-pill turn-clock${seconds <= 30 ? ' low' : ''}`} role="timer" aria-label={`${clock} left this turn`} data-testid="turn-clock">
+      <Hourglass size={15} /> {clock}
+    </span>
   );
 }
 

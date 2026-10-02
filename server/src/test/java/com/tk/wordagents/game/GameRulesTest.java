@@ -3,6 +3,8 @@ package com.tk.wordagents.game;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import java.time.Duration;
+import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 import java.util.Random;
@@ -89,6 +91,13 @@ class GameRulesTest {
         assertThatThrownBy(() -> apply(room, spy(second), new GameAction.GiveClue("ZEBRA", Count.of(2)))).isInstanceOf(GameException.class);
         assertThatThrownBy(() -> apply(room, op(first), new GameAction.GiveClue("ZEBRA", Count.of(2)))).isInstanceOf(GameException.class);
         assertThatThrownBy(() -> apply(room, spy(first), new GameAction.GiveClue("two words", Count.of(2)))).hasMessageContaining("one word");
+        assertThatThrownBy(() -> apply(room, spy(first), new GameAction.GiveClue("sea_sky_sun", Count.of(2)))).hasMessageContaining("one word");
+        assertThatThrownBy(() -> apply(room, spy(first), new GameAction.GiveClue("sea.sky", Count.of(2)))).hasMessageContaining("one word");
+        assertThatThrownBy(() -> apply(room, spy(first), new GameAction.GiveClue("sea/sky", Count.of(2)))).hasMessageContaining("one word");
+        assertThatThrownBy(() -> apply(room, spy(first), new GameAction.GiveClue("sea+sky", Count.of(2)))).hasMessageContaining("one word");
+        assertThatThrownBy(() -> apply(room, spy(first), new GameAction.GiveClue("sea-sky-sun", Count.of(2)))).hasMessageContaining("one word");
+        assertThatThrownBy(() -> apply(room, spy(first), new GameAction.GiveClue("-sea", Count.of(2)))).hasMessageContaining("one word");
+        assertThatThrownBy(() -> apply(room, spy(first), new GameAction.GiveClue("sea--sky", Count.of(2)))).hasMessageContaining("one word");
         assertThatThrownBy(() -> apply(room, spy(first), new GameAction.GiveClue("ZEBRA", Count.of(12)))).hasMessageContaining("0 to 9");
 
         apply(room, spy(first), new GameAction.GiveClue("zebra", Count.of(2)));
@@ -137,9 +146,21 @@ class GameRulesTest {
         assertThat(room.getWinner()).isEqualTo(second);
     }
 
-    /** Re-deals with these words guaranteed on the board. The deal picks a new starting team. */
+    /** Board padding that no clue in these tests matches, contains or sits inside. */
+    private static final List<String> FILLER = List.of(
+        "ANCHOR", "BALLOON", "CACTUS", "DOLPHIN", "ECLIPSE", "FALCON", "GLACIER", "HARBOR", "IGLOO", "JUNGLE",
+        "KETTLE", "LANTERN", "MAGNET", "NOODLE", "OYSTER", "PEPPER", "QUARTZ", "RIBBON", "SADDLE", "TULIP",
+        "UMBRELLA", "VIOLIN", "WALRUS", "YOGURT", "ZIPPER");
+
+    /**
+     * Re-deals with these words guaranteed on the board, padded with filler rather than
+     * a random pack, so no stray word (FIRE next to BONFIRE) changes how a clue is judged.
+     * The deal picks a new starting team.
+     */
     private void dealWith(String... words) {
-        apply(room, "red-spy", new GameAction.SetWords(List.of("classic"), List.of(words)));
+        List<String> board = new java.util.ArrayList<>(List.of(words));
+        FILLER.stream().limit(GameRules.BOARD_SIZE - words.length).forEach(board::add);
+        apply(room, "red-spy", new GameAction.SetWords(List.of(), board));
         first = room.getStartingTeam();
         second = first.other();
     }
@@ -378,5 +399,129 @@ class GameRulesTest {
 
         apply(room, op(first), new GameAction.EndTurn());
         assertThat(player(op(first)).getHighlights()).isEmpty();
+    }
+
+    private void startTimed() {
+        apply(room, "red-spy", new GameAction.SetTimer(true, null, null));
+        start();
+    }
+
+    @Test
+    void turnsAreUntimedUnlessTheHostTurnsTheTimerOn() {
+        assertThat(room.isTurnTimer()).isFalse();
+        start();
+        assertThat(room.getTurnEndsAt()).isNull();
+        apply(room, spy(first), new GameAction.GiveClue("ZEBRA", Count.of(2)));
+        assertThat(room.getTurnEndsAt()).isNull();
+        assertThat(GameRules.expireTurn(room, Instant.now().plus(Duration.ofHours(1)))).isFalse();
+        assertThat(room.getPhase()).isEqualTo(Phase.GUESSING);
+    }
+
+    @Test
+    void onlyTheHostSetsTheTimerAndOnlyInTheLobby() {
+        assertThatThrownBy(() -> apply(room, "blue-op", new GameAction.SetTimer(true, null, null))).hasMessageContaining("Only the host");
+        apply(room, "red-spy", new GameAction.SetTimer(true, null, null));
+        assertThat(room.isTurnTimer()).isTrue();
+        apply(room, "red-spy", new GameAction.SetTimer(false, null, null));
+        assertThat(room.isTurnTimer()).isFalse();
+        start();
+        assertThatThrownBy(() -> apply(room, "red-spy", new GameAction.SetTimer(true, null, null))).hasMessageContaining("locked");
+    }
+
+    @Test
+    void theHostPicksHowLongEachTurnLasts() {
+        apply(room, "red-spy", new GameAction.SetTimer(true, 90, 240));
+        assertThat(room.getLastEvent()).isEqualTo("Turn timer on: 1:30 per clue, 4 minutes to guess.");
+        Instant before = Instant.now();
+        start();
+        assertThat(room.getTurnEndsAt()).isBetween(before.plusSeconds(90), Instant.now().plusSeconds(90));
+        apply(room, spy(first), new GameAction.GiveClue("ZEBRA", Count.of(2)));
+        assertThat(room.getTurnEndsAt()).isBetween(before.plusSeconds(240), Instant.now().plusSeconds(240));
+    }
+
+    @Test
+    void turnTimesStayBetweenThirtySecondsAndTenMinutes() {
+        assertThatThrownBy(() -> apply(room, "red-spy", new GameAction.SetTimer(true, 29, null))).hasMessageContaining("30 seconds to 10 minutes");
+        assertThatThrownBy(() -> apply(room, "red-spy", new GameAction.SetTimer(true, null, 601))).hasMessageContaining("30 seconds to 10 minutes");
+        apply(room, "red-spy", new GameAction.SetTimer(true, 30, 600));
+        // Turning it off and on again keeps the times the host picked.
+        apply(room, "red-spy", new GameAction.SetTimer(false, null, null));
+        apply(room, "red-spy", new GameAction.SetTimer(true, null, null));
+        assertThat(room.getSpymasterTime()).isEqualTo(Duration.ofSeconds(30));
+        assertThat(room.getOperativeTime()).isEqualTo(Duration.ofMinutes(10));
+    }
+
+    @Test
+    void theTimerSettingOutlastsANewGame() {
+        startTimed();
+        apply(room, "red-spy", new GameAction.NewGame());
+        assertThat(room.isTurnTimer()).isTrue();
+        assertThat(room.getTurnEndsAt()).isNull();
+    }
+
+    @Test
+    void spymastersGetThreeMinutesAndOperativesFive() {
+        Instant before = Instant.now();
+        startTimed();
+        assertThat(room.getTurnEndsAt()).isBetween(before.plus(Duration.ofMinutes(3)), Instant.now().plus(Duration.ofMinutes(3)));
+
+        apply(room, spy(first), new GameAction.GiveClue("ZEBRA", Count.of(2)));
+        assertThat(room.getTurnEndsAt()).isBetween(before.plus(Duration.ofMinutes(5)), Instant.now().plus(Duration.ofMinutes(5)));
+
+        apply(room, op(first), new GameAction.Guess(unrevealed(CardRole.NEUTRAL).getCardId()));
+        assertThat(room.getActiveTeam()).isEqualTo(second);
+        assertThat(room.getTurnEndsAt()).isBetween(before.plus(Duration.ofMinutes(3)), Instant.now().plus(Duration.ofMinutes(3)));
+    }
+
+    @Test
+    void theClockOnlyEndsATurnOnceItRunsOut() {
+        startTimed();
+        Instant endsAt = room.getTurnEndsAt();
+        assertThat(GameRules.expireTurn(room, endsAt.minusSeconds(1))).isFalse();
+        assertThat(room.getActiveTeam()).isEqualTo(first);
+
+        assertThat(GameRules.expireTurn(room, endsAt)).isTrue();
+        assertThat(room.getActiveTeam()).isEqualTo(second);
+        assertThat(room.getPhase()).isEqualTo(Phase.CLUE);
+        assertThat(room.getLastEvent()).contains("ran out of time");
+    }
+
+    @Test
+    void operativesOutOfTimeLoseTheRestOfTheirGuesses() {
+        startTimed();
+        apply(room, spy(first), new GameAction.GiveClue("ZEBRA", Count.of(2)));
+        apply(room, op(first), new GameAction.SetHighlights(ids(unrevealed(first.cardRole()))));
+
+        assertThat(GameRules.expireTurn(room, room.getTurnEndsAt())).isTrue();
+        assertThat(room.getActiveTeam()).isEqualTo(second);
+        assertThat(room.getPhase()).isEqualTo(Phase.CLUE);
+        assertThat(room.getGuessesRemaining()).isEqualTo(Count.of(0));
+        assertThat(player(op(first)).getHighlights()).isEmpty();
+    }
+
+    @Test
+    void aClueStillUnderReviewStandsWhenTimeRunsOut() {
+        dealWith("BONFIRE");
+        startTimed();
+        apply(room, spy(first), new GameAction.GiveClue("BONFIRES", Count.of(1)));
+
+        assertThat(GameRules.expireTurn(room, room.getTurnEndsAt())).isTrue();
+        assertThat(room.getPhase()).isEqualTo(Phase.GUESSING);
+        assertThat(room.getActiveTeam()).isEqualTo(first);
+        assertThat(room.clue()).map(ActiveClue::word).contains("BONFIRES");
+        assertThat(room.getTurnEndsAt()).isAfter(Instant.now().plus(Duration.ofMinutes(4)));
+    }
+
+    @Test
+    void theClockStopsWhenTheGameEnds() {
+        startTimed();
+        apply(room, spy(first), new GameAction.GiveClue("ZEBRA", Count.of(2)));
+        apply(room, op(first), new GameAction.Guess(unrevealed(CardRole.ASSASSIN).getCardId()));
+        assertThat(room.getPhase()).isEqualTo(Phase.FINISHED);
+        assertThat(room.getTurnEndsAt()).isNull();
+        assertThat(GameRules.expireTurn(room, Instant.now().plus(Duration.ofHours(1)))).isFalse();
+
+        apply(room, "red-spy", new GameAction.NewGame());
+        assertThat(room.getTurnEndsAt()).isNull();
     }
 }

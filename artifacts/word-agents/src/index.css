@@ -103,6 +103,10 @@ button.brand-exit:hover { color: #f0bb4d; }
 .status-phase { display: flex; align-items: center; gap: 12px; font: 700 16px var(--display); letter-spacing: 1.5px; text-transform: uppercase; }
 .team-dot { width: 10px; height: 10px; border-radius: 50%; background: var(--team-color, var(--gold)); flex: none; }
 .timer-pill { display: inline-flex; align-items: center; gap: 8px; padding: 6px 12px; border: 1px solid var(--line); border-radius: 8px; background: #1c1e24; color: var(--gold); font: 600 14px var(--mono); text-transform: uppercase; }
+.timer-fields { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.timer-fields .field + .field { margin-top: 0; }
+.turn-clock { font-variant-numeric: tabular-nums; min-width: 84px; }
+.turn-clock.low { color: var(--red); border-color: currentColor; }
 
 .scoreboard { display: flex; align-items: center; gap: 16px; }
 .score-group { display: flex; align-items: center; gap: 16px; }

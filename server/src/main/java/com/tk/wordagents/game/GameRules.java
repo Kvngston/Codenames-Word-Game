@@ -1,6 +1,8 @@
 package com.tk.wordagents.game;
 
 import java.security.SecureRandom;
+import java.time.Duration;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
@@ -11,6 +13,7 @@ import java.util.Optional;
 import java.util.Random;
 import java.util.Set;
 import java.util.UUID;
+import java.util.regex.Pattern;
 
 /**
  * The rules of the game. Every permission check lives here, so a client can
@@ -21,7 +24,14 @@ public final class GameRules {
     public static final int BOARD_SIZE = 25;
     public static final int MAX_CUSTOM_WORDS = 200;
     public static final int MAX_PACKS = 10;
+    /** How long a spymaster has to give a clue, and the operatives to guess on it, until the host changes it. */
+    public static final Duration DEFAULT_SPYMASTER_TIME = Duration.ofMinutes(3);
+    public static final Duration DEFAULT_OPERATIVE_TIME = Duration.ofMinutes(5);
+    public static final Duration MIN_TURN_TIME = Duration.ofSeconds(30);
+    public static final Duration MAX_TURN_TIME = Duration.ofMinutes(10);
     private static final Random RANDOM = new SecureRandom();
+    /** One word: letters or digits, apostrophes inside it (DON'T), and at most one hyphen (X-RAY). */
+    private static final Pattern ONE_WORD = Pattern.compile("[\\p{L}\\p{N}]+(?:['’][\\p{L}\\p{N}]+)*(?:-[\\p{L}\\p{N}]+(?:['’][\\p{L}\\p{N}]+)*)?");
 
     private GameRules() {}
 
@@ -59,6 +69,7 @@ public final class GameRules {
         room.setResultMessage("");
         room.setPenaltyRevealPending(false);
         room.setLastEvent("");
+        room.setTurnEndsAt(null);
         clearHighlights(room);
     }
 
@@ -232,12 +243,24 @@ public final class GameRules {
                 room.setLastEvent("New words are on the table: " + room.getPoolSize() + " in the pool.");
             }
 
+            case GameAction.SetTimer(boolean on, Integer spymasterSeconds, Integer operativeSeconds) -> {
+                ensure(isHost, "Only the host can set the turn timer.");
+                ensure(room.getPhase() == Phase.LOBBY, "The turn timer is locked once the game starts.");
+                Duration spymaster = turnTime(spymasterSeconds, room.getSpymasterTime());
+                Duration operative = turnTime(operativeSeconds, room.getOperativeTime());
+                room.setTurnTimer(on);
+                room.setSpymasterTime(spymaster);
+                room.setOperativeTime(operative);
+                room.setLastEvent(on ? "Turn timer on: " + clock(spymaster) + " per clue, " + clock(operative) + " to guess." : "Turn timer off.");
+            }
+
             case GameAction.Start() -> {
                 ensure(isHost, "Only the host can deal the words.");
                 ensure(room.getPhase() == Phase.LOBBY, "The game has already started.");
                 seatingProblem(room).ifPresent(problem -> { throw new GameException(problem); });
                 room.setPhase(Phase.CLUE);
                 room.setActiveTeam(room.getStartingTeam());
+                startClock(room, room.getSpymasterTime());
                 room.setLastEvent(room.teamName(room.getStartingTeam()) + " goes first.");
             }
 
@@ -249,6 +272,7 @@ public final class GameRules {
                 String word = rawWord == null ? "" : rawWord.trim().toUpperCase(Locale.ROOT);
                 ensure(!word.isEmpty(), "Enter a one-word clue first.");
                 ensure(!word.matches(".*\\s.*"), "Keep it to one word. A hyphenated word is okay.");
+                ensure(ONE_WORD.matcher(word).matches(), "Keep it to one word: no symbols like _ . / or +, and at most one hyphen.");
                 ensure(word.length() <= 32, "That clue is too long.");
                 ensure(number != null && (number.unlimited() || (number.value() >= 0 && number.value() <= 9)), "Pick a number from 0 to 9, or unlimited.");
                 boardConflict(room, word).ifPresent(problem -> { throw new GameException(problem); });
@@ -325,6 +349,36 @@ public final class GameRules {
     }
 
     /**
+     * Ends a turn whose time ran out. A spymaster out of time loses the turn,
+     * operatives out of time stop guessing. A clue still under review went in on
+     * time, so the rival spymaster's silence counts as accepting it.
+     * Returns false when the clock hasn't run out.
+     */
+    public static boolean expireTurn(Room room, Instant now) {
+        Instant endsAt = room.getTurnEndsAt();
+        if (endsAt == null || now.isBefore(endsAt)) return false;
+        Team active = room.getActiveTeam();
+        switch (room.getPhase()) {
+            case CLUE -> {
+                ActiveClue review = room.pendingReview().orElse(null);
+                if (review != null) {
+                    publishClue(room, review);
+                    room.setLastEvent("Time ran out on the review, so the clue stands. " + room.teamName(active) + " clue: " + review.word() + " " + review.number() + ".");
+                } else {
+                    endTurn(room, false);
+                    room.setLastEvent("The " + room.teamName(active) + " spymaster ran out of time. " + room.teamName(active.other()) + " takes the turn.");
+                }
+            }
+            case GUESSING -> {
+                endTurn(room, false);
+                room.setLastEvent("Time's up for " + room.teamName(active) + ". " + room.teamName(active.other()) + " takes the turn.");
+            }
+            case LOBBY, FINISHED -> room.setTurnEndsAt(null);
+        }
+        return true;
+    }
+
+    /**
      * Reveals the operative's picks in the order they were chosen, stopping as
      * soon as one ends the turn or the game. Later picks are left unrevealed.
      */
@@ -383,6 +437,7 @@ public final class GameRules {
         room.setGuessesRemaining(number.unlimited() || number.value() == 0 ? Count.UNLIMITED : Count.of(number.value() + 1));
         room.setTurnGuesses(0);
         room.setPendingReview(null);
+        startClock(room, room.getOperativeTime());
         room.getClues().add(new Clue(room, room.getClues().size() + 1, clue));
     }
 
@@ -393,7 +448,31 @@ public final class GameRules {
         room.setTurnGuesses(0);
         room.setPendingReview(null);
         room.setPenaltyRevealPending(penaltyRevealPending);
+        startClock(room, room.getSpymasterTime());
         clearHighlights(room);
+    }
+
+    /** Starts the clock for the turn's new phase, when the host has the timer on. */
+    private static void startClock(Room room, Duration time) {
+        room.setTurnEndsAt(room.isTurnTimer() ? Instant.now().plus(time) : null);
+    }
+
+    /** A turn length the host picked, or the current one when they left it out. */
+    private static Duration turnTime(Integer seconds, Duration current) {
+        if (seconds == null) return current;
+        Duration time = Duration.ofSeconds(seconds);
+        ensure(time.compareTo(MIN_TURN_TIME) >= 0 && time.compareTo(MAX_TURN_TIME) <= 0,
+            "Pick a turn time from " + clock(MIN_TURN_TIME) + " to " + clock(MAX_TURN_TIME) + ".");
+        return time;
+    }
+
+    /** 30 seconds, 1 minute, 1:30, 5 minutes. */
+    static String clock(Duration time) {
+        long minutes = time.toMinutes();
+        int seconds = time.toSecondsPart();
+        if (minutes == 0) return seconds + " seconds";
+        if (seconds == 0) return minutes + (minutes == 1 ? " minute" : " minutes");
+        return minutes + ":" + String.format("%02d", seconds);
     }
 
     private static void finish(Room room, Team winner, String message) {
@@ -403,6 +482,7 @@ public final class GameRules {
         room.setPenaltyRevealPending(false);
         room.setPendingReview(null);
         room.setGuessesRemaining(Count.of(0));
+        room.setTurnEndsAt(null);
         clearHighlights(room);
     }
 

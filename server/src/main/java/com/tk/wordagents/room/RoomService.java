@@ -9,6 +9,7 @@ import com.tk.wordagents.game.Room;
 import com.tk.wordagents.pack.PackService;
 import com.tk.wordagents.room.RoomViews.RoomView;
 import java.security.SecureRandom;
+import java.time.Instant;
 import java.util.Locale;
 import java.util.UUID;
 import org.springframework.http.HttpStatus;
@@ -88,6 +89,14 @@ public class RoomService {
         metrics.action(action, before, room.getPhase(), "ok");
         changed(room);
         return RoomViews.viewFor(room, player.getId(), presence::isOnline);
+    }
+
+    /** Ends the room's turn if its clock has run out. Safe to call from every instance: the lock decides. */
+    @Transactional
+    public void expireTurn(String code) {
+        rooms.findForUpdate(code).ifPresent(room -> {
+            if (GameRules.expireTurn(room, Instant.now())) changed(room);
+        });
     }
 
     @Transactional

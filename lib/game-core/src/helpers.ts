@@ -27,6 +27,18 @@ export function parseWords(text: string): string[] {
   return [...seen];
 }
 
+/** One word: letters or digits, apostrophes inside it (DON'T), and at most one hyphen (X-RAY). */
+const ONE_WORD = /^[\p{L}\p{N}]+(?:['’][\p{L}\p{N}]+)*(?:-[\p{L}\p{N}]+(?:['’][\p{L}\p{N}]+)*)?$/u;
+
+/** Mirrors the server's one-word check, so joined-up clues like A_B_C are caught before sending. */
+export function clueFormatProblem(clue: string): string | null {
+  const word = clue.trim();
+  if (!word) return null;
+  if (/\s/.test(word)) return 'Keep it to one word. A hyphenated word is okay.';
+  if (!ONE_WORD.test(word)) return 'Keep it to one word: no symbols like _ . / or +, and at most one hyphen.';
+  return null;
+}
+
 const wordParts = (text: string) => text.trim().toLowerCase().split(/[\s-]+/).filter(Boolean);
 
 /**

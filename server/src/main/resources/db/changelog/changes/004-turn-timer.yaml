@@ -1,0 +1,35 @@
+# The deadline for the current turn: the spymaster's clue, then the operatives'
+# guesses. Null in the lobby and once a game is over. Indexed for the sweep.
+databaseChangeLog:
+  - changeSet:
+      id: 004-room-turn-ends-at
+      author: word-agents
+      changes:
+        - addColumn:
+            tableName: rooms
+            columns:
+              - column: { name: turn_ends_at, type: "DATETIME(6)" }
+        - createIndex:
+            tableName: rooms
+            indexName: idx_rooms_turn_ends_at
+            columns:
+              - column: { name: turn_ends_at }
+  # The host's choice to time turns at all. Off by default.
+  - changeSet:
+      id: 004-room-turn-timer
+      author: word-agents
+      changes:
+        - addColumn:
+            tableName: rooms
+            columns:
+              - column: { name: turn_timer, type: BOOLEAN, defaultValueBoolean: false, constraints: { nullable: false } }
+  # How long the host gives each spymaster and each team's operatives.
+  - changeSet:
+      id: 004-room-turn-times
+      author: word-agents
+      changes:
+        - addColumn:
+            tableName: rooms
+            columns:
+              - column: { name: spymaster_seconds, type: INT, defaultValueNumeric: 180, constraints: { nullable: false } }
+              - column: { name: operative_seconds, type: INT, defaultValueNumeric: 300, constraints: { nullable: false } }

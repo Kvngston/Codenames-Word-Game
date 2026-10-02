@@ -32,6 +32,10 @@ interface RoomRepository extends JpaRepository<Room, String> {
         long getPlayers();
     }
 
+    /** Rooms whose turn clock has run out. */
+    @Query("select r.code from Room r where r.turnEndsAt <= :now")
+    List<String> findTurnsEndedBy(Instant now);
+
     /** Bulk delete; players, cards and clues go with it through ON DELETE CASCADE. */
     @Modifying
     @Query("delete from Room r where r.updatedAt < :cutoff")
