@@ -1092,7 +1092,7 @@ function RulesDialog({ onClose }: { onClose: () => void }) {
           <li>A zero or unlimited clue has no numeric cap. You must guess at least once before ending the turn.</li>
           <li>Find every friendly agent to win. The assassin ends the game immediately for the other team.</li>
           <li>A clue can’t be a word on the board, or part of one. If it’s close to one (like SHARKS for SHARK), the opposing spymaster decides on their own screen whether it stands.</li>
-          <li>In the lobby, the host picks the word packs and can add the table’s own words. Custom words always make the board.</li>
+          <li>In the lobby, the host picks up to 2 word packs and can add the table’s own words. Custom words always make the board.</li>
         </ol>
         <p className="dialog-copy">Only spymasters’ devices receive the secret map, so there’s nothing for operatives to peek at.</p>
         <div className="dialog-actions">

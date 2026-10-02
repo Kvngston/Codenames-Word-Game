@@ -7,7 +7,7 @@ Only spymasters' devices ever receive the secret map. The server hides the card 
 ## How to play
 
 1. **Open a room.** The host enters a codename, opens an operation, and shares the room code or link.
-2. **Pick seats.** Each team needs one spymaster and at least one operative. In the lobby, the host can rename the teams, choose word packs, and add the table's own words.
+2. **Pick seats.** Each team needs one spymaster and at least one operative. In the lobby, the host can rename the teams, choose up to 2 word packs, and add the table's own words.
 3. **Give a clue.** On their turn, the spymaster enters one word and a number from 0 to 9. The number is how many cards the clue points to; operatives get that many guesses plus one. A 0 clue has no guess limit.
 4. **Guess.** Operatives tap a word to mark it, then either:
    - **Submit** to reveal it and keep guessing, or
@@ -20,7 +20,7 @@ If a clue matches a word on the board, the opposing spymaster decides on their o
 
 - Every player uses their own device; seats are remembered on each device, so a refresh or reconnect keeps your place.
 - Live updates over WebSockets, with presence dots showing who's online.
-- Built-in genre packs, plus custom word packs you can save, edit, and share by code or link (`/pack/CODE`).
+- Built-in genre packs, plus custom word packs you can save, edit, and share by code or link (`/pack/CODE`). Boards use up to 2 packs, split evenly and drawn from a few sub-themes. The assassin is picked from the non-team cards as the one closest in meaning to both teams' words (GloVe vectors, rebuilt with `server/scripts/build-word-vectors.py`).
 - Custom words for a single game, which always make it onto the board.
 - A spymaster-only map with a cover toggle, and an assassin warning while you write your clue.
 - A live activity feed of clues and guesses.

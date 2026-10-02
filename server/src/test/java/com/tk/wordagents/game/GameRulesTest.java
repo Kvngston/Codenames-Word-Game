@@ -318,6 +318,74 @@ class GameRulesTest {
     }
 
     @Test
+    void boardsDealFromAtMostTwoPacks() {
+        apply(room, "red-spy", new GameAction.SetWords(List.of("food", "travel"), List.of()));
+        assertThat(room.getWordPacks()).containsExactly("food", "travel");
+        assertThatThrownBy(() -> apply(room, "red-spy", new GameAction.SetWords(List.of("food", "travel", "arts"), List.of())))
+            .hasMessageContaining("Pick up to 2 packs");
+        assertThat(room.getWordPacks()).containsExactly("food", "travel");
+
+        // A room picked before the cap can still switch packs off one at a time.
+        room.setWordPacks(List.of("food", "travel", "arts", "sports"));
+        apply(room, "red-spy", new GameAction.SetWords(List.of("food", "travel", "arts"), List.of()));
+        assertThat(room.getWordPacks()).containsExactly("food", "travel", "arts");
+    }
+
+    private List<String> packWords(String id) {
+        return WordPacks.find(id).orElseThrow().words();
+    }
+
+    private Card assassin() {
+        return room.getCards().stream().filter(card -> card.getRole() == CardRole.ASSASSIN).findFirst().orElseThrow();
+    }
+
+    @Test
+    void twoPacksShareTheBoardEvenly() {
+        room.setWordPacks(List.of("food", "travel"));
+        for (int seed = 0; seed < 50; seed++) {
+            GameRules.deal(room, WordLibrary.BUILT_IN, new Random(seed));
+            long food = boardWords().stream().filter(packWords("food")::contains).count();
+            assertThat(food).isBetween(12L, 13L);
+            assertThat(boardWords()).hasSize(25).doesNotHaveDuplicates();
+        }
+    }
+
+    @Test
+    void aPackDealsFromAFewOfItsSubThemes() {
+        List<List<String>> groups = WordPacks.find("food").orElseThrow().groups();
+        assertThat(groups).hasSize(6);
+        room.setWordPacks(List.of("food"));
+        for (int seed = 0; seed < 50; seed++) {
+            GameRules.deal(room, WordLibrary.BUILT_IN, new Random(seed));
+            long themes = groups.stream().filter(group -> boardWords().stream().anyMatch(group::contains)).count();
+            assertThat(themes).isLessThanOrEqualTo(4);
+        }
+    }
+
+    @Test
+    void theAssassinSitsInAPackWithBothTeamsCards() {
+        room.setWordPacks(List.of("science", "fantasy"));
+        for (int seed = 0; seed < 50; seed++) {
+            GameRules.deal(room, WordLibrary.BUILT_IN, new Random(seed));
+            List<String> pack = packWords(packWords("science").contains(assassin().getWord()) ? "science" : "fantasy");
+            List<CardRole> roles = room.getCards().stream().filter(card -> pack.contains(card.getWord())).map(Card::getRole).toList();
+            assertThat(roles).contains(CardRole.RED, CardRole.BLUE);
+            assertThat(roles.stream().filter(role -> role == CardRole.RED).count()).isBetween(3L, 6L);
+        }
+    }
+
+    @Test
+    void wordVectorsKnowWhatGoesTogether() {
+        WordVectors vectors = WordVectors.get();
+        float[] apple = vectors.vector("APPLE").orElseThrow();
+        assertThat(WordVectors.cosine(apple, vectors.vector("BANANA").orElseThrow()))
+            .isGreaterThan(WordVectors.cosine(apple, vectors.vector("GALAXY").orElseThrow()));
+        assertThat(vectors.vector("ICE CREAM")).isPresent();
+        assertThat(vectors.vector("X-RAY")).isPresent();
+        assertThat(vectors.vector("ZZQXJ")).isEmpty();
+    }
+
+    @Test
     void customWordsAloneMustFillTheBoard() {
         assertThatThrownBy(() -> apply(room, "red-spy", new GameAction.SetWords(List.of(), numbered("W", 10))))
             .hasMessageContaining("only 10 words. Add 15 more");

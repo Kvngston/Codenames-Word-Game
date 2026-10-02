@@ -247,7 +247,8 @@ button.brand-exit:hover { color: #f0bb4d; }
   display: flex; align-items: center; justify-content: space-between; gap: 12px; width: 100%; padding: 16px; text-align: left;
   border: 1px solid var(--line); border-radius: 8px; background: transparent; transition: border-color .15s, background .15s;
 }
-.pack-toggle:hover { border-color: var(--muted); }
+.pack-toggle:hover:not(:disabled) { border-color: var(--muted); }
+.pack-toggle:disabled { opacity: 0.45; cursor: not-allowed; }
 .pack-toggle[aria-pressed='true'] { border-color: var(--gold); background: var(--panel-2); }
 .pack-toggle-text { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
 .pack-toggle-text b { font: 700 14px var(--sans); color: var(--text-2); }

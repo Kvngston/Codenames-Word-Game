@@ -4,17 +4,20 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
 
 /**
  * The built-in word packs. Each pack's words live in {@code resources/packs/<id>.txt},
- * one per line; add a line to {@link #ALL} and a file to ship a new genre.
+ * one per line; add a line to {@link #ALL} and a file to ship a new genre. A
+ * {@code # name} line starts a sub-theme, so a board can stick to a few of them.
  */
 public final class WordPacks {
 
-    public record Pack(String id, String name, String description, List<String> words) {}
+    /** {@code words} is every word, A to Z; {@code groups} splits them into sub-themes (one group if the file has none). */
+    public record Pack(String id, String name, String description, List<String> words, List<List<String>> groups) {}
 
     public static final String DEFAULT_ID = "classic";
 
@@ -47,11 +50,28 @@ public final class WordPacks {
     private static Pack load(String id, String name, String description) {
         try (InputStream in = WordPacks.class.getResourceAsStream("/packs/" + id + ".txt")) {
             if (in == null) throw new IllegalStateException("Missing word pack file packs/" + id + ".txt");
-            List<String> words = WordLists.cleanAll(new String(in.readAllBytes(), StandardCharsets.UTF_8).lines().toList());
+            List<List<String>> groups = new ArrayList<>();
+            List<String> group = new ArrayList<>();
+            for (String line : new String(in.readAllBytes(), StandardCharsets.UTF_8).lines().toList()) {
+                if (line.startsWith("#")) {
+                    addGroup(groups, group);
+                    group = new ArrayList<>();
+                } else {
+                    group.add(line);
+                }
+            }
+            addGroup(groups, group);
+            List<String> words = WordLists.cleanAll(groups.stream().flatMap(List::stream).sorted().toList());
+            if (words.size() != groups.stream().mapToInt(List::size).sum()) throw new IllegalStateException("Word pack " + id + " lists a word in more than one sub-theme.");
             if (words.size() < GameRules.BOARD_SIZE) throw new IllegalStateException("Word pack " + id + " needs at least " + GameRules.BOARD_SIZE + " words.");
-            return new Pack(id, name, description, words);
+            return new Pack(id, name, description, words, List.copyOf(groups));
         } catch (IOException e) {
             throw new UncheckedIOException(e);
         }
+    }
+
+    private static void addGroup(List<List<String>> groups, List<String> lines) {
+        List<String> words = WordLists.cleanAll(lines);
+        if (!words.isEmpty()) groups.add(words);
     }
 }

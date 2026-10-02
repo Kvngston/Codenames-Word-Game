@@ -23,7 +23,8 @@ public final class GameRules {
 
     public static final int BOARD_SIZE = 25;
     public static final int MAX_CUSTOM_WORDS = 200;
-    public static final int MAX_PACKS = 10;
+    /** More genres than this and the board stops hanging together: the assassin ends up unrelated to every team word. */
+    public static final int MAX_PACKS = 2;
     /** How long a spymaster has to give a clue, and the operatives to guess on it, until the host changes it. */
     public static final Duration DEFAULT_SPYMASTER_TIME = Duration.ofMinutes(3);
     public static final Duration DEFAULT_OPERATIVE_TIME = Duration.ofMinutes(5);
@@ -42,19 +43,14 @@ public final class GameRules {
 
     static void deal(Room room, WordLibrary library, Random random) {
         Team starting = random.nextBoolean() ? Team.RED : Team.BLUE;
-        List<CardRole> roles = new ArrayList<>();
-        for (int i = 0; i < 9; i++) roles.add(starting.cardRole());
-        for (int i = 0; i < 8; i++) roles.add(starting.other().cardRole());
-        for (int i = 0; i < 7; i++) roles.add(CardRole.NEUTRAL);
-        roles.add(CardRole.ASSASSIN);
-        Collections.shuffle(roles, random);
-        List<String> words = drawWords(room, library, random);
+        List<BoardDealer.Dealt> dealt = BoardDealer.deal(room, library, starting, random);
 
         List<Card> cards = room.getCards();
         for (int position = cards.size(); position < BOARD_SIZE; position++) cards.add(new Card(room, position));
         for (Card card : cards) {
             // Card ids are random and independent of role, so they can go to every player.
-            card.deal(UUID.randomUUID().toString(), words.get(card.getPosition()), roles.get(card.getPosition()));
+            BoardDealer.Dealt deal = dealt.get(card.getPosition());
+            card.deal(UUID.randomUUID().toString(), deal.word(), deal.role());
         }
 
         room.setStartingTeam(starting);
@@ -75,28 +71,6 @@ public final class GameRules {
 
     private static void clearHighlights(Room room) {
         room.getPlayers().forEach(player -> player.setHighlights(List.of()));
-    }
-
-    /**
-     * The room's custom words always make the board (up to 25); pack words
-     * fill the rest. The result is shuffled so custom words land anywhere.
-     */
-    static List<String> drawWords(Room room, WordLibrary library, Random random) {
-        List<String> custom = new ArrayList<>(room.getCustomWords());
-        Set<String> packWords = packWords(room.getWordPacks(), custom, library);
-        // A saved pack may have been deleted or trimmed since it was picked; never deal a short board.
-        if (custom.size() + packWords.size() < BOARD_SIZE) {
-            WordPacks.defaultPack().words().stream().filter(word -> !custom.contains(word)).forEach(packWords::add);
-        }
-        List<String> rest = new ArrayList<>(packWords);
-        Collections.shuffle(custom, random);
-        Collections.shuffle(rest, random);
-        room.setPoolSize(custom.size() + rest.size());
-
-        List<String> board = new ArrayList<>(custom.subList(0, Math.min(custom.size(), BOARD_SIZE)));
-        board.addAll(rest.subList(0, BOARD_SIZE - board.size()));
-        Collections.shuffle(board, random);
-        return board;
     }
 
     /** Every distinct word in these packs that isn't already a custom word. Missing packs are skipped. */
@@ -232,7 +206,8 @@ public final class GameRules {
                     ensure(library.words(id).isPresent(), "There's no word pack with the code " + id + ".");
                     packs.add(id);
                 }
-                ensure(packs.size() <= MAX_PACKS, "Pick up to " + MAX_PACKS + " packs.");
+                // A room set up before the cap may hold more; let the host switch packs off on the way down.
+                ensure(packs.size() <= MAX_PACKS || packs.size() < room.getWordPacks().size(), "Pick up to " + MAX_PACKS + " packs.");
                 int available = custom.size() + packWords(packs, custom, library).size();
                 ensure(available >= BOARD_SIZE, available == 0
                     ? "Pick a pack or add some words."

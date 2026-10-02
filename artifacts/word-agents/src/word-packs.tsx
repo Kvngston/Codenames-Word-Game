@@ -20,6 +20,8 @@ type Toast = (message: string) => void;
 
 const MAX_CUSTOM_WORDS = 200;
 const MAX_PACK_WORDS = 500;
+/** Matches the server: more genres than this and the assassin rarely relates to the team words. */
+const MAX_PACKS = 2;
 
 async function copy(text: string, done: string, onToast: Toast) {
   try {
@@ -81,6 +83,7 @@ function HostWordsPanel({ view, act, onToast, onManagePacks, names }: { view: Ro
   const otherPacks = words.packs.filter((id) => !catalog.some((pack) => pack.id === id) && !mine.some((pack) => pack.code === id));
 
   const setWords = (packs: string[], customWords = words.customWords ?? []) => act({ type: 'set-words', packs, customWords });
+  const full = words.packs.length >= MAX_PACKS;
   const toggle = (id: string) => void setWords(words.packs.includes(id) ? words.packs.filter((item) => item !== id) : [...words.packs, id]);
 
   async function addByCode(event: FormEvent<HTMLFormElement>) {
@@ -90,7 +93,8 @@ function HostWordsPanel({ view, act, onToast, onManagePacks, names }: { view: Ro
     try {
       const pack = await fetchPack(code);
       rememberPack(pack);
-      if (!words.packs.includes(pack.code) && (await setWords([...words.packs, pack.code]))) onToast(`Added “${pack.name}”.`);
+      if (!words.packs.includes(pack.code) && full) onToast(`Saved “${pack.name}”. Switch a pack off to use it; boards take up to ${MAX_PACKS}.`);
+      else if (!words.packs.includes(pack.code) && (await setWords([...words.packs, pack.code]))) onToast(`Added “${pack.name}”.`);
       setCode('');
     } catch (error) {
       onToast((error as Error).message);
@@ -118,7 +122,7 @@ function HostWordsPanel({ view, act, onToast, onManagePacks, names }: { view: Ro
   const chip = (id: string, name: string, detail: string, description?: string) => {
     const on = words.packs.includes(id);
     return (
-      <button key={id} type="button" className="pack-toggle" aria-pressed={on} onClick={() => toggle(id)} data-testid={`button-pack-${id}`}>
+      <button key={id} type="button" className="pack-toggle" aria-pressed={on} disabled={!on && full} onClick={() => toggle(id)} data-testid={`button-pack-${id}`}>
         <span className="pack-toggle-text"><b>{name}</b><span>{description ?? detail}{description && <span className="pack-desc"> · {detail}</span>}</span></span>
         <span className="switch" aria-hidden="true"><span /></span>
       </button>
@@ -131,6 +135,9 @@ function HostWordsPanel({ view, act, onToast, onManagePacks, names }: { view: Ro
         <h3 className="panel-title" id="words-title">Select word dossiers</h3>
         {words.poolSize > 0 && <span className="count-chip neutral" data-testid="text-pool-size">{words.poolSize} words</span>}
       </div>
+      <p className="muted-copy small" data-testid="text-pack-limit">
+        Pick up to {MAX_PACKS} so the board shares a theme.{full && ' Switch one off to swap it.'}
+      </p>
 
       <div className="pack-list-toggles">
         {catalog.map((pack) => chip(pack.id, pack.name, `${pack.size} words`, pack.description))}
