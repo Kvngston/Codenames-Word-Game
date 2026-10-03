@@ -50,6 +50,11 @@ final class WordVectors {
         return sum == null ? Optional.empty() : Optional.of(unit(sum));
     }
 
+    /** Whether GloVe has this exact lower-case word. */
+    boolean knows(String word) {
+        return vectors.containsKey(word);
+    }
+
     static double cosine(float[] a, float[] b) {
         double dot = 0;
         for (int i = 0; i < a.length; i++) dot += a[i] * b[i];

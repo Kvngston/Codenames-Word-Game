@@ -8,7 +8,7 @@ Only spymasters' devices ever receive the secret map. The server hides the card 
 
 1. **Open a room.** The host enters a codename, opens an operation, and shares the room code or link.
 2. **Pick seats.** Each team needs one spymaster and at least one operative. In the lobby, the host can rename the teams, choose up to 2 word packs, and add the table's own words.
-3. **Give a clue.** On their turn, the spymaster enters one word and a number from 0 to 9. The number is how many cards the clue points to; operatives get that many guesses plus one. A 0 clue has no guess limit.
+3. **Give a clue.** On their turn, the spymaster enters one word and a number from 0 to 9. The number is how many cards the clue points to; operatives get that many guesses plus one. A 0 clue has no guess limit. The clue has to be a real word: made-up words are rejected.
 4. **Guess.** Operatives tap a word to mark it, then either:
    - **Submit** to reveal it and keep guessing, or
    - **End turn** to reveal it and pass the turn. With nothing marked, End turn just passes; you must make at least one guess first.

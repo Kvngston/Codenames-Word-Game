@@ -251,6 +251,7 @@ public final class GameRules {
                 ensure(word.length() <= 32, "That clue is too long.");
                 ensure(number != null && (number.unlimited() || (number.value() >= 0 && number.value() <= 9)), "Pick a number from 0 to 9, or unlimited.");
                 boardConflict(room, word).ifPresent(problem -> { throw new GameException(problem); });
+                ensure(EnglishWords.isReal(word), "“" + word + "” isn’t a word we know. Pick a real word.");
                 ActiveClue clue = new ActiveClue(active, word, number);
                 if (isQuestionableClue(room, word)) {
                     room.setPendingReview(clue);

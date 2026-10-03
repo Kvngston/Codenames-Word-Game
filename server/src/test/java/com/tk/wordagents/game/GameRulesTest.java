@@ -86,6 +86,13 @@ class GameRulesTest {
     }
 
     @Test
+    void realWordsPassTheDictionary() {
+        assertThat(List.of("zebra", "LAPTOP", "sharks", "jumped", "Einstein", "x-ray", "space-age", "don't", "dog’s", "café", "1984", "quixotic", "bonfires", "quixotically", "stoppering"))
+            .allMatch(EnglishWords::isReal);
+        assertThat(List.of("blorptastic", "asdfgh", "zebra-qwzx", "qwzx's")).noneMatch(EnglishWords::isReal);
+    }
+
+    @Test
     void clueOpensGuessingWithNumberPlusOne() {
         start();
         assertThatThrownBy(() -> apply(room, spy(second), new GameAction.GiveClue("ZEBRA", Count.of(2)))).isInstanceOf(GameException.class);
@@ -99,6 +106,8 @@ class GameRulesTest {
         assertThatThrownBy(() -> apply(room, spy(first), new GameAction.GiveClue("-sea", Count.of(2)))).hasMessageContaining("one word");
         assertThatThrownBy(() -> apply(room, spy(first), new GameAction.GiveClue("sea--sky", Count.of(2)))).hasMessageContaining("one word");
         assertThatThrownBy(() -> apply(room, spy(first), new GameAction.GiveClue("ZEBRA", Count.of(12)))).hasMessageContaining("0 to 9");
+        assertThatThrownBy(() -> apply(room, spy(first), new GameAction.GiveClue("blorptastic", Count.of(2)))).hasMessageContaining("real word");
+        assertThatThrownBy(() -> apply(room, spy(first), new GameAction.GiveClue("asdfgh", Count.of(2)))).hasMessageContaining("real word");
 
         apply(room, spy(first), new GameAction.GiveClue("zebra", Count.of(2)));
         assertThat(room.getPhase()).isEqualTo(Phase.GUESSING);
